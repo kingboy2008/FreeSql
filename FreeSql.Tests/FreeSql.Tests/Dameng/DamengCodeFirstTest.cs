@@ -2,6 +2,7 @@ using FreeSql.DataAnnotations;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using Xunit;
@@ -10,6 +11,75 @@ namespace FreeSql.Tests.Dameng
 {
     public class DamengCodeFirstTest
     {
+        [Fact]
+        public void Text_StringLength_1()
+        {
+            var str1 = string.Join(",", Enumerable.Range(0, 10000).Select(a => "我是中国人"));
+
+            var item1 = new TS_TEXT02 { Data = str1 };
+            Assert.Equal(1, g.dameng.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.dameng.Select<TS_TEXT02>().Where(a => a.Id == item1.Id).First();
+            Assert.Equal(str1, item2.Data);
+
+            //NoneParameter
+            item1 = new TS_TEXT02 { Data = str1 };
+            Assert.Equal(1, g.dameng.Insert(item1).NoneParameter().ExecuteAffrows());
+        }
+        class TS_TEXT02
+        {
+            public Guid Id { get; set; }
+            [Column(StringLength = -1)]
+            public string Data { get; set; }
+        }
+
+        [Fact]
+        public void Text()
+        {
+            var str1 = string.Join(",", Enumerable.Range(0, 10000).Select(a => "我是中国人"));
+
+            var item1 = new TS_TEXT01 { Data = str1 };
+            Assert.Equal(1, g.dameng.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.dameng.Select<TS_TEXT01>().Where(a => a.Id == item1.Id).First();
+            Assert.Equal(str1, item2.Data);
+
+            //NoneParameter
+            item1 = new TS_TEXT01 { Data = str1 };
+            Assert.Equal(1, g.dameng.Insert(item1).NoneParameter().ExecuteAffrows());
+        }
+        class TS_TEXT01
+        {
+            public Guid Id { get; set; }
+            [Column(DbType = "text")]
+            public string Data { get; set; }
+        }
+        [Fact]
+        public void Blob()
+        {
+            var str1 = string.Join(",", Enumerable.Range(0, 10000).Select(a => "我是中国人"));
+            var data1 = Encoding.UTF8.GetBytes(str1);
+
+            var item1 = new TS_BLB01 { Data = data1 };
+            Assert.Equal(1, g.dameng.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.dameng.Select<TS_BLB01>().Where(a => a.Id == item1.Id).First();
+            Assert.Equal(item1.Data.Length, item2.Data.Length);
+
+            var str2 = Encoding.UTF8.GetString(item2.Data);
+            Assert.Equal(str1, str2);
+
+            //NoneParameter
+            item1 = new TS_BLB01 { Data = data1 };
+            Assert.Throws<Exception>(() => g.dameng.Insert(item1).NoneParameter().ExecuteAffrows());
+            //DmException: 字符串截断
+        }
+        class TS_BLB01
+        {
+            public Guid Id { get; set; }
+            [MaxLength(-1)]
+            public byte[] Data { get; set; }
+        }
         [Fact]
         public void StringLength()
         {
@@ -238,11 +308,7 @@ namespace FreeSql.Tests.Dameng
         [Fact]
         public void CurdAllField()
         {
-            var item = new TableAllType { };
-            item.Id = (int)insert.AppendData(item).ExecuteIdentity();
-
-            var newitem = select.Where(a => a.Id == item.Id).ToOne();
-
+            g.dameng.Delete<TableAllType>().Where("1=1").ExecuteAffrows();
             var item2 = new TableAllType
             {
                 Bool = true,

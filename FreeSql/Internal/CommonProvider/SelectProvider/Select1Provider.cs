@@ -372,6 +372,7 @@ namespace FreeSql.Internal.CommonProvider
             if (whereExp == null)
             {
                 tbref = tb.GetTableRef(collMem.Member.Name, true);
+                if (tbref == null) throw new Exception($"IncludeMany 类型 {tb.Type.DisplayCsharp()} 的属性 {collMem.Member.Name} 不是有效的导航属性，提示：IsIgnore = true 不会成为导航属性");
             }
             else
             {
@@ -637,6 +638,7 @@ namespace FreeSql.Internal.CommonProvider
                         if (tr2ref == null) continue;
                         if (tr2ref.RefType != TableRefType.ManyToOne) continue;
                         if (tr2ref.RefEntityType != tb.Type) continue;
+                        if (string.Join(",", tr2ref.Columns.Select(a => a.CsName).OrderBy(a => a)) != string.Join(",", tbref.RefColumns.Select(a => a.CsName).OrderBy(a => a))) continue; //- 修复 IncludeMany 只填充子属性中双向关系的 ManyToOne 对象值；防止把 ManyToOne 多个相同类型的导航属性值都填充了
                         parentNavs.Add(navProp.Key);
                     }
                     foreach (var nav in subList)

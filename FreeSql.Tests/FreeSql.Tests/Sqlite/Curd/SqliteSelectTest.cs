@@ -107,6 +107,17 @@ namespace FreeSql.Tests.Sqlite
             //		WHERE(t.`Name` = '国语') AND(t.`Id` = Mt_Ms.`Tag_id`)
             //		limit 0, 1))
             //	limit 0, 1))
+
+            var t3 = g.sqlite.Select<Song>().ToList(r => new
+            {
+                r.Title,
+                count = r.Tags.AsSelect().Count(),
+                //sum = r.Tags.AsSelect().Sum(b => b.Id + 0),
+                //avg = r.Tags.AsSelect().Avg(b => b.Id + 1),
+                //max = r.Tags.AsSelect().Max(b => b.Id + 2),
+                //min = r.Tags.AsSelect().Min(b => b.Id + 3),
+                //first = r.Tags.AsSelect().First(b => b.Name)
+            });
         }
 
         [Fact]
@@ -1865,7 +1876,7 @@ WHERE (((cast(a.""Id"" as character)) in (SELECT b.""Title""
                     new VM_District_Child
                     {
                         Code = "110000",
-                        Name = "北京市",
+                        Name = "北京",
                         Childs = new List<VM_District_Child>(new[] {
                             new VM_District_Child{ Code="110100", Name = "北京市" },
                             new VM_District_Child{ Code="110101", Name = "东城区" },
@@ -1903,6 +1914,52 @@ WHERE (((cast(a.""Id"" as character)) in (SELECT b.""Title""
             Assert.Equal(2, t3[0].Childs[0].Childs.Count);
             Assert.Equal("110100", t3[0].Childs[0].Childs[0].Code);
             Assert.Equal("110101", t3[0].Childs[0].Childs[1].Code);
+
+            t3 = fsql.Select<VM_District_Child>().Where(a => a.Name == "中国").AsTreeCte().OrderBy(a => a.Code).ToTreeList();
+            Assert.Single(t3);
+            Assert.Equal("100000", t3[0].Code);
+            Assert.Single(t3[0].Childs);
+            Assert.Equal("110000", t3[0].Childs[0].Code);
+            Assert.Equal(2, t3[0].Childs[0].Childs.Count);
+            Assert.Equal("110100", t3[0].Childs[0].Childs[0].Code);
+            Assert.Equal("110101", t3[0].Childs[0].Childs[1].Code);
+
+            t3 = fsql.Select<VM_District_Child>().Where(a => a.Name == "中国").AsTreeCte().OrderBy(a => a.Code).ToList();
+            Assert.Equal(4, t3.Count);
+            Assert.Equal("100000", t3[0].Code);
+            Assert.Equal("110000", t3[1].Code);
+            Assert.Equal("110100", t3[2].Code);
+            Assert.Equal("110101", t3[3].Code);
+
+            t3 = fsql.Select<VM_District_Child>().Where(a => a.Name == "北京").AsTreeCte().OrderBy(a => a.Code).ToList();
+            Assert.Equal(3, t3.Count);
+            Assert.Equal("110000", t3[0].Code);
+            Assert.Equal("110100", t3[1].Code);
+            Assert.Equal("110101", t3[2].Code);
+
+            var t4 = fsql.Select<VM_District_Child>().Where(a => a.Name == "中国").AsTreeCte(a => a.Name).OrderBy(a => a.Code)
+                .ToList(a => new { item = a, level = Convert.ToInt32("a.cte_level"), path = "a.cte_path" });
+            Assert.Equal(4, t4.Count);
+            Assert.Equal("100000", t4[0].item.Code);
+            Assert.Equal("110000", t4[1].item.Code);
+            Assert.Equal("110100", t4[2].item.Code);
+            Assert.Equal("110101", t4[3].item.Code);
+            Assert.Equal("中国", t4[0].path);
+            Assert.Equal("中国 -> 北京", t4[1].path);
+            Assert.Equal("中国 -> 北京 -> 北京市", t4[2].path);
+            Assert.Equal("中国 -> 北京 -> 东城区", t4[3].path);
+
+            t4 = fsql.Select<VM_District_Child>().Where(a => a.Name == "中国").AsTreeCte(a => a.Name + "[" + a.Code + "]").OrderBy(a => a.Code)
+                .ToList(a => new { item = a, level = Convert.ToInt32("a.cte_level"), path = "a.cte_path" });
+            Assert.Equal(4, t4.Count);
+            Assert.Equal("100000", t4[0].item.Code);
+            Assert.Equal("110000", t4[1].item.Code);
+            Assert.Equal("110100", t4[2].item.Code);
+            Assert.Equal("110101", t4[3].item.Code);
+            Assert.Equal("中国[100000]", t4[0].path);
+            Assert.Equal("中国[100000] -> 北京[110000]", t4[1].path);
+            Assert.Equal("中国[100000] -> 北京[110000] -> 北京市[110100]", t4[2].path);
+            Assert.Equal("中国[100000] -> 北京[110000] -> 东城区[110101]", t4[3].path);
         }
 
         [Table(Name = "D_District")]
@@ -1918,6 +1975,8 @@ WHERE (((cast(a.""Id"" as character)) in (SELECT b.""Title""
             public virtual string ParentCode { get; set; }
 
             public DateTime CreateTime { get; set; }
+
+            public int testint { get; set; }
         }
         [Table(Name = "D_District", DisableSyncStructure = true)]
         public class VM_District_Child : BaseDistrict
@@ -1976,9 +2035,78 @@ WHERE (((cast(a.""Id"" as character)) in (SELECT b.""Title""
   ]
 }
 ")).ToSql();
-            Assert.Equal(@"SELECT a.""Code"", a.""Name"", a.""CreateTime"", a.""ParentCode"" 
+            Assert.Equal(@"SELECT a.""Code"", a.""Name"", a.""CreateTime"", a.""testint"", a.""ParentCode"" 
 FROM ""D_District"" a 
 WHERE (((a.""Code"") LIKE '%val1%' AND (a.""Name"") LIKE 'val2%' OR (a.""Name"") LIKE '%val3' OR a.""ParentCode"" = 'val4' OR a.""CreateTime"" >= '2010-10-10 00:00:00'))", sql);
+
+            sql = fsql.Select<VM_District_Parent>().WhereDynamicFilter(JsonConvert.DeserializeObject<DynamicFilterInfo>(@"
+{
+  ""Logic"" : ""Or"",
+  ""Filters"" :
+  [
+    {
+      ""Field"" : ""CreateTime"",
+      ""Operator"" : ""DateRange"",
+      ""Value"" : [""2010-10-10"", ""2010-11-10""]
+    },
+    {
+      ""Field"" : ""CreateTime"",
+      ""Operator"" : ""DateRange"",
+      ""Value"" : ""2010-10,2010-11""
+    },
+    {
+      ""Field"" : ""CreateTime"",
+      ""Operator"" : ""DateRange"",
+      ""Value"" : ""2010,2010""
+    },
+    {
+      ""Field"" : ""CreateTime"",
+      ""Operator"" : ""DateRange"",
+      ""Value"" : ""2010-10-10 11,2010-11-10 11""
+    },
+    {
+      ""Field"" : ""CreateTime"",
+      ""Operator"" : ""DateRange"",
+      ""Value"" : ""2010-10-10 11:20,2010-11-10 11:20""
+    },
+  ]
+}
+")).ToSql();
+            Assert.Equal(@"SELECT a.""Code"", a.""Name"", a.""CreateTime"", a.""testint"", a.""ParentCode"" 
+FROM ""D_District"" a 
+WHERE ((a.""CreateTime"" >= '2010-10-10 00:00:00' AND a.""CreateTime"" < '2010-11-11 00:00:00' OR a.""CreateTime"" >= '2010-10-01 00:00:00' AND a.""CreateTime"" < '2010-12-01 00:00:00' OR a.""CreateTime"" >= '2010-01-01 00:00:00' AND a.""CreateTime"" < '2011-01-01 00:00:00' OR a.""CreateTime"" >= '2010-10-10 11:00:00' AND a.""CreateTime"" < '2010-11-10 12:00:00' OR a.""CreateTime"" >= '2010-10-10 11:20:00' AND a.""CreateTime"" < '2010-11-10 11:21:00'))", sql);
+
+            sql = fsql.Select<VM_District_Parent>().WhereDynamicFilter(JsonConvert.DeserializeObject<DynamicFilterInfo>(@"
+{
+  ""Logic"" : ""Or"",
+  ""Filters"" :
+  [
+    {
+      ""Field"" : ""CreateTime"",
+      ""Operator"" : ""Range"",
+      ""Value"" : ""2010-10-10,2010-12-10""
+    },
+    {
+      ""Field"" : ""Name"",
+      ""Operator"" : ""Any"",
+      ""Value"" : ""val1,val2,val3,val4""
+    },
+    {
+      ""Field"" : ""testint"",
+      ""Operator"" : ""Range"",
+      ""Value"" : ""100,555""
+    },
+    {
+      ""Field"" : ""testint"",
+      ""Operator"" : ""Any"",
+      ""Value"" : ""1,5,11,15""
+    }
+  ]
+}
+")).ToSql();
+            Assert.Equal(@"SELECT a.""Code"", a.""Name"", a.""CreateTime"", a.""testint"", a.""ParentCode"" 
+FROM ""D_District"" a 
+WHERE ((a.""CreateTime"" >= '2010-10-10 00:00:00' AND a.""CreateTime"" < '2010-12-10 00:00:00' OR ((a.""Name"") in ('val1','val2','val3','val4')) OR a.""testint"" >= 100 AND a.""testint"" < 555 OR ((a.""testint"") in (1,5,11,15))))", sql);
 
             sql = fsql.Select<VM_District_Parent>().WhereDynamicFilter(JsonConvert.DeserializeObject<DynamicFilterInfo>(@"
 {
@@ -2035,7 +2163,7 @@ WHERE (((a.""Code"") LIKE '%val1%' AND (a.""Name"") LIKE 'val2%' OR (a.""Name"")
   ]
 }
 ")).ToSql();
-            Assert.Equal(@"SELECT a.""Code"", a.""Name"", a.""CreateTime"", a.""ParentCode"", a__Parent.""Code"" as5, a__Parent.""Name"" as6, a__Parent.""CreateTime"" as7, a__Parent.""ParentCode"" as8 
+            Assert.Equal(@"SELECT a.""Code"", a.""Name"", a.""CreateTime"", a.""testint"", a.""ParentCode"", a__Parent.""Code"" as6, a__Parent.""Name"" as7, a__Parent.""CreateTime"" as8, a__Parent.""testint"" as9, a__Parent.""ParentCode"" as10 
 FROM ""D_District"" a 
 LEFT JOIN ""D_District"" a__Parent ON a__Parent.""Code"" = a.""ParentCode"" 
 WHERE ((not((a.""Code"") LIKE '%val1%') AND not((a.""Name"") LIKE 'val2%') OR not((a.""Name"") LIKE '%val3') OR a.""ParentCode"" <> 'val4' OR a__Parent.""Code"" = 'val11' AND (a__Parent.""Name"") LIKE '%val22%' OR a__Parent.""Name"" = 'val33' OR a__Parent.""ParentCode"" = 'val44'))", sql);

@@ -1,5 +1,6 @@
 ﻿using FreeSql.Internal.Model;
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -10,6 +11,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -594,7 +596,7 @@ namespace FreeSql.Internal.CommonProvider
             public int FieldCount { get; set; }
             public Func<IFreeSql, DbDataReader, T1> Read { get; set; }
         }
-        protected GetAllFieldExpressionTreeInfo GetAllFieldExpressionTreeLevelAll()
+        public GetAllFieldExpressionTreeInfo GetAllFieldExpressionTreeLevelAll()
         {
             return _dicGetAllFieldExpressionTree.GetOrAdd($"*{string.Join("+", _tables.Select(a => $"{_orm.Ado.DataType}-{a.Table.DbName}-{a.Alias}-{a.Type}"))}", s =>
             {
@@ -733,7 +735,7 @@ namespace FreeSql.Internal.CommonProvider
                 };
             });
         }
-        protected GetAllFieldExpressionTreeInfo GetAllFieldExpressionTreeLevel2()
+        public GetAllFieldExpressionTreeInfo GetAllFieldExpressionTreeLevel2()
         {
             return _dicGetAllFieldExpressionTree.GetOrAdd(string.Join("+", _tables.Select(a => $"{_orm.Ado.DataType}-{a.Table.DbName}-{a.Alias}-{a.Type}")), s =>
             {
@@ -1029,6 +1031,8 @@ namespace FreeSql.Internal.CommonProvider
         static MethodInfo MethodStringContains = typeof(string).GetMethod("Contains", new[] { typeof(string) });
         static MethodInfo MethodStringStartsWith = typeof(string).GetMethod("StartsWith", new[] { typeof(string) });
         static MethodInfo MethodStringEndsWith = typeof(string).GetMethod("EndsWith", new[] { typeof(string) });
+        static ConcurrentDictionary<Type, MethodInfo> MethodEnumerableContainsDic = new ConcurrentDictionary<Type, MethodInfo>();
+        static MethodInfo GetMethodEnumerableContains(Type elementType) => MethodEnumerableContainsDic.GetOrAdd(elementType, et => typeof(Enumerable).GetMethods().Where(a => a.Name == "Contains").FirstOrDefault().MakeGenericMethod(elementType));
         public TSelect WhereDynamicFilter(DynamicFilterInfo filter)
         {
             if (filter == null) return this as TSelect;
@@ -1089,14 +1093,62 @@ namespace FreeSql.Internal.CommonProvider
                         case DynamicFilterOperator.NotStartsWith: exp = Expression.Not(Expression.Call(exp, MethodStringStartsWith, Expression.Constant(fi.Value))); break;
                         case DynamicFilterOperator.NotEndsWith: exp = Expression.Not(Expression.Call(exp, MethodStringEndsWith, Expression.Constant(fi.Value))); break;
 
+                        case DynamicFilterOperator.Eq:
                         case DynamicFilterOperator.Equals:
-                        case DynamicFilterOperator.Eq: exp = Expression.Equal(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
+                        case DynamicFilterOperator.Equal: exp = Expression.Equal(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
                         case DynamicFilterOperator.NotEqual: exp = Expression.NotEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
 
                         case DynamicFilterOperator.GreaterThan: exp = Expression.GreaterThan(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
                         case DynamicFilterOperator.GreaterThanOrEqual: exp = Expression.GreaterThanOrEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
                         case DynamicFilterOperator.LessThan: exp = Expression.LessThan(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
                         case DynamicFilterOperator.LessThanOrEqual: exp = Expression.LessThanOrEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
+                        case DynamicFilterOperator.Range:
+                            var fiValueRangeArray = getFiListValue();
+                            if (fiValueRangeArray.Length != 2) throw new ArgumentException($"Range 要求 Value 应该逗号分割，并且长度为 2");
+                            exp = Expression.AndAlso(
+                                Expression.GreaterThanOrEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fiValueRangeArray[0]), exp.Type)),
+                                Expression.LessThan(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fiValueRangeArray[1]), exp.Type))); 
+                            break;
+                        case DynamicFilterOperator.DateRange:
+                            var fiValueDateRangeArray = getFiListValue();
+                            if (fiValueDateRangeArray?.Length != 2) throw new ArgumentException($"DateRange 要求 Value 应该逗号分割，并且长度为 2");
+                            if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d?$")) fiValueDateRangeArray[1] = DateTime.Parse(fiValueDateRangeArray[1]).AddDays(1).ToString("yyyy-MM-dd HH:mm:ss");
+                            else if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?$")) fiValueDateRangeArray[1] = DateTime.Parse($"{fiValueDateRangeArray[1]}-01").AddMonths(1).ToString("yyyy-MM-dd HH:mm:ss");
+                            else if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d$")) fiValueDateRangeArray[1] = DateTime.Parse($"{fiValueDateRangeArray[1]}-01-01").AddYears(1).ToString("yyyy-MM-dd HH:mm:ss");
+                            else if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d? \d\d?$")) fiValueDateRangeArray[1] = DateTime.Parse($"{fiValueDateRangeArray[1]}:00:00").AddHours(1).ToString("yyyy-MM-dd HH:mm:ss");
+                            else if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d? \d\d?:\d\d?$")) fiValueDateRangeArray[1] = DateTime.Parse($"{fiValueDateRangeArray[1]}:00").AddMinutes(1).ToString("yyyy-MM-dd HH:mm:ss");
+                            else throw new ArgumentException($"DateRange 要求 Value[1] 格式必须为：yyyy、yyyy-MM、yyyy-MM-dd、yyyy-MM-dd HH、yyyy、yyyy-MM-dd HH:mm");
+
+                            if (Regex.IsMatch(fiValueDateRangeArray[0], @"^\d\d\d\d[\-/]\d\d?$")) fiValueDateRangeArray[0] = DateTime.Parse($"{fiValueDateRangeArray[0]}-01").ToString("yyyy-MM-dd HH:mm:ss");
+                            else if (Regex.IsMatch(fiValueDateRangeArray[0], @"^\d\d\d\d$")) fiValueDateRangeArray[0] = DateTime.Parse($"{fiValueDateRangeArray[0]}-01-01").ToString("yyyy-MM-dd HH:mm:ss");
+                            else if (Regex.IsMatch(fiValueDateRangeArray[0], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d? \d\d?$")) fiValueDateRangeArray[0] = DateTime.Parse($"{fiValueDateRangeArray[0]}:00:00").ToString("yyyy-MM-dd HH:mm:ss");
+                            else if (Regex.IsMatch(fiValueDateRangeArray[0], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d? \d\d?:\d\d?$")) fiValueDateRangeArray[0] = DateTime.Parse($"{fiValueDateRangeArray[0]}:00").ToString("yyyy-MM-dd HH:mm:ss");
+
+                            exp = Expression.AndAlso(
+                                Expression.GreaterThanOrEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fiValueDateRangeArray[0]), exp.Type)),
+                                Expression.LessThan(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fiValueDateRangeArray[1]), exp.Type)));
+                            break;
+                        case DynamicFilterOperator.Any:
+                        case DynamicFilterOperator.NotAny:
+                            var fiValueAnyArray = getFiListValue();
+                            if (fiValueAnyArray.Length == 0) break;
+                            var fiValueAnyArrayType = exp.Type.MakeArrayType();
+                            exp = Expression.Call(GetMethodEnumerableContains(exp.Type), Expression.Constant(Utils.GetDataReaderValue(fiValueAnyArrayType, fiValueAnyArray), fiValueAnyArrayType), exp);
+                            if (fi.Operator == DynamicFilterOperator.NotAny) exp = Expression.Not(exp);
+                            break;
+                    }
+
+                    string[] getFiListValue()
+                    {
+                        if (fi.Value is string fiValueString) return fiValueString.Split(',');
+                        if (fi.Value is IEnumerable fiValueIe)
+                        {
+                            var fiValueList = new List<string>();
+                            foreach (var fiValueIeItem in fiValueIe)
+                                fiValueList.Add(string.Concat(fiValueIeItem));
+                            return fiValueList.ToArray();
+                        }
+                        return new string[0];
                     }
 
                     var sql = _commonExpression.ExpressionWhereLambda(_tables, exp, null, null, _params);
@@ -1117,7 +1169,7 @@ namespace FreeSql.Internal.CommonProvider
                 {
                     if (string.IsNullOrEmpty(fi.Field) == false || fi.Filters?.Any() == true)
                     {
-                        switch (filter.Logic)
+                        switch (logic)
                         {
                             case DynamicFilterLogic.And: sb.Append(" AND "); break;
                             case DynamicFilterLogic.Or: sb.Append(" OR "); break;
@@ -1162,17 +1214,19 @@ namespace FreeSql.Internal.CommonProvider
                     break;
                 case DataType.PostgreSQL:
                 case DataType.OdbcPostgreSQL:
+                case DataType.OdbcKingbaseES:
                     _tosqlAppendContent = $" for update{(noawait ? " nowait" : "")}";
                     break;
                 case DataType.Oracle:
                 case DataType.OdbcOracle:
+                case DataType.Dameng:
+                case DataType.OdbcDameng:
                     _tosqlAppendContent = $" for update{(noawait ? " nowait" : "")}";
                     break;
                 case DataType.Sqlite:
                     break;
-                case DataType.OdbcDameng:
-                case DataType.Dameng:
-                    _tosqlAppendContent = $" for update{(noawait ? " nowait" : "")}";
+                case DataType.ShenTong: //神通测试中发现，不支持 nowait
+                    _tosqlAppendContent = " for update";
                     break;
             }
             return this as TSelect;

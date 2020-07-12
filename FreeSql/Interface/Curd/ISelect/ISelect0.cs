@@ -284,7 +284,9 @@ namespace FreeSql
         /// PostgreSQL: for update nowait<para></para>
         /// Oracle: for update nowait<para></para>
         /// Sqlite: 无效果<para></para>
-        /// 达梦: for update nowait
+        /// 达梦: for update nowait<para></para>
+        /// 人大金仓: for update nowait<para></para>
+        /// 神通: for update
         /// </summary>
         /// <param name="nowait">noawait</param>
         /// <returns></returns>

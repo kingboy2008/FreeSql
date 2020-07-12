@@ -75,7 +75,7 @@ namespace FreeSql.SqlServer
             return $"{nametrim.TrimStart('[').TrimEnd(']').Replace("].[", ".").Replace(".[", ".")}";
         }
         public override string[] SplitTableName(string name) => GetSplitTableNames(name, '[', ']', 3);
-        public override string QuoteParamterName(string name) => $"@{(_orm.CodeFirst.IsSyncStructureToLower ? name.ToLower() : name)}";
+        public override string QuoteParamterName(string name) => $"@{name}";
         public override string IsNull(string sql, object value) => $"isnull({sql}, {value})";
         public override string StringConcat(string[] objs, Type[] types)
         {
@@ -85,7 +85,8 @@ namespace FreeSql.SqlServer
             {
                 if (types[a] == typeof(string)) news[a] = objs[a];
                 else if (types[a].NullableTypeOrThis() == typeof(Guid)) news[a] = $"cast({objs[a]} as char(36))";
-                else news[a] = $"cast({objs[a]} as nvarchar)";
+                else if (types[a].IsNumberType()) news[a] = $"cast({objs[a]} as varchar)";
+                else news[a] = $"cast({objs[a]} as nvarchar(max))";
             }
             return string.Join(" + ", news);
         }

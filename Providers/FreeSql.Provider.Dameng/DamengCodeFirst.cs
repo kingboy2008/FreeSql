@@ -15,7 +15,6 @@ namespace FreeSql.Dameng
 
     class DamengCodeFirst : Internal.CommonProvider.CodeFirstProvider
     {
-        public override bool IsNoneCommandParameter { get => true; set => base.IsNoneCommandParameter = true; }
         public DamengCodeFirst(IFreeSql orm, CommonUtils commonUtils, CommonExpression commonExpression) : base(orm, commonUtils, commonExpression) { }
 
         static object _dicCsToDbLock = new object();
@@ -229,6 +228,7 @@ where a.owner={{0}} and a.table_name={{1}}", tboldname ?? tbname);
                                 if (istmpatler && Regex.IsMatch(tbcol.Attribute.DbType, @"\(\d+") == false && Regex.IsMatch(tbstructcol.sqlType, @"\(\d+")
                                     && string.Compare(tbcol.Attribute.DbType, Regex.Replace(tbstructcol.sqlType, @"\([^\)]+\)", ""), StringComparison.CurrentCultureIgnoreCase) == 0)
                                     istmpatler = false;
+                                if (istmpatler) break;
                             }
                             //sbalter.Append("execute immediate 'ALTER TABLE ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append(" MODIFY (").Append(_commonUtils.QuoteSqlName(tbstructcol.column)).Append(" ").Append(dbtypeNoneNotNull).Append(")';\r\n");
                             if (tbcol.Attribute.IsNullable != tbstructcol.is_nullable)
@@ -262,7 +262,9 @@ where a.owner={{0}} and a.table_name={{1}}", tboldname ?? tbname);
                         if (tbcol.Attribute.IsIdentity == true) seqcols.Add(NaviteTuple.Create(tbcol, tbname, tbcol.Attribute.IsIdentity == true));
                         if (string.IsNullOrEmpty(tbcol.Comment) == false) sbalter.Append("execute immediate 'COMMENT ON COLUMN ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}.{tbcol.Attribute.Name}")).Append(" IS ").Append(_commonUtils.FormatSql("{0}", tbcol.Comment ?? "").Replace("'", "''")).Append("';\r\n");
                     }
-
+                }
+                if (istmpatler == false)
+                {
                     var dsuksql = _commonUtils.FormatSql(@"
 select
 c.column_name,
@@ -270,7 +272,7 @@ a.index_name,
 case when c.descend = 'DESC' then 1 else 0 end,
 case when a.uniqueness = 'UNIQUE' then 1 else 0 end
 from all_indexes a,
-all_ind_columns c 
+all_ind_columns c
 where a.index_name = c.index_name
 and a.table_owner = c.table_owner
 and a.table_name = c.table_name
@@ -307,8 +309,9 @@ and not exists(select 1 from all_constraints where index_name = a.index_name and
                     continue;
                 }
                 var oldpk = _orm.Ado.ExecuteScalar(CommandType.Text, _commonUtils.FormatSql(@" select constraint_name from user_constraints where owner={0} and table_name={1} and constraint_type='P'", tbname))?.ToString();
-                if (string.IsNullOrEmpty(oldpk) == false)
-                    sb.Append("execute immediate 'ALTER TABLE ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append(" DROP CONSTRAINT ").Append(oldpk).Append("';\r\n");
+                //if (string.IsNullOrEmpty(oldpk) == false)
+                //    sb.Append("execute immediate 'ALTER TABLE ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append(" DROP CONSTRAINT ").Append(_commonUtils.QuoteSqlName(oldpk)).Append("';\r\n");
+                //执行失败(语句1) 试图删除聚集主键
 
                 //创建临时表，数据导进临时表，然后删除原表，将临时表改名为原表名
                 var tablename = tboldname == null ? _commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}") : _commonUtils.QuoteSqlName($"{tboldname[0]}.{tboldname[1]}");
@@ -322,7 +325,8 @@ and not exists(select 1 from all_constraints where index_name = a.index_name and
                 }
                 if (tb.Primarys.Any())
                 {
-                    var pkname = primaryKeyName ?? $"{tbname[0]}_{tbname[1]}_pk2";
+                    var pkname = primaryKeyName ?? $"{tbname[0]}_{tbname[1]}_pk1";
+                    if (string.IsNullOrEmpty(oldpk) == false && oldpk == pkname) pkname = $"{pkname}1";
                     sb.Append(" \r\n  CONSTRAINT ").Append(_commonUtils.QuoteSqlName(pkname)).Append(" PRIMARY KEY (");
                     foreach (var tbcol in tb.Primarys) sb.Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(", ");
                     sb.Remove(sb.Length - 2, 2).Append("),");
@@ -452,6 +456,15 @@ and not exists(select 1 from all_constraints where index_name = a.index_name and
             else if (sqlType.StartsWith("TIMESTAMP", StringComparison.CurrentCultureIgnoreCase))
                 sqlType += data_scale <= 0 ? "" : $"({data_scale})";
             else if (sqlType.StartsWith("BLOB"))
+            {
+            }
+            else if (sqlType.StartsWith("CLOB"))
+            {
+            }
+            else if (sqlType.StartsWith("NCLOB"))
+            {
+            }
+            else if (sqlType.StartsWith("TEXT"))
             {
             }
             else if (sqlType == "REAL" || sqlType == "DOUBLE" || sqlType == "FLOAT")

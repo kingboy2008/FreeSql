@@ -80,7 +80,7 @@
         </member>
         <member name="P:FreeSql.DataAnnotations.ColumnAttribute.StringLength">
             <summary>
-            设置长度，针对 string 类型避免 DbType 的繁琐设置<para></para>
+            设置长度，针对 string/byte[] 类型避免 DbType 的繁琐设置<para></para>
             提示：也可以使用 [MaxLength(100)]<para></para>
             ---<para></para>
             StringLength = 100 时，对应 DbType：<para></para>
@@ -90,12 +90,13 @@
             Oracle -> nvarchar2(100)<para></para>
             Sqlite -> nvarchar(100)<para></para>
             ---<para></para>
-            StringLength = -1 时，对应 DbType：<para></para>
-            MySql -> text<para></para>
+            StringLength &lt; 0 时，对应 DbType：<para></para>
+            MySql -> text (StringLength = -2 时，对应 longtext)<para></para>
             SqlServer -> nvarchar(max)<para></para>
             PostgreSQL -> text<para></para>
-            Oracle -> nvarchar2(4000)<para></para>
+            Oracle -> nclob<para></para>
             Sqlite -> text<para></para>
+            v1.6.0+ byte[] 支持设置 StringLength
             </summary>
         </member>
         <member name="P:FreeSql.DataAnnotations.ColumnAttribute.InsertValueSql">
@@ -551,6 +552,16 @@
             武汉达梦数据库有限公司，基于 DmProvider.dll 的实现
             </summary>
         </member>
+        <member name="F:FreeSql.DataType.OdbcKingbaseES">
+            <summary>
+            北京人大金仓信息技术股份有限公司，基于 Odbc 的实现
+            </summary>
+        </member>
+        <member name="F:FreeSql.DataType.ShenTong">
+            <summary>
+             天津神舟通用数据技术有限公司，基于 System.Data.OscarClient.dll 的实现
+            </summary>
+        </member>
         <member name="M:FreeSql.Extensions.EntityUtil.EntityUtilExtensions.GetEntityKeyString(IFreeSql,System.Type,System.Object,System.Boolean,System.String)">
             <summary>
             获取实体的主键值，以 "*|_,[,_|*" 分割，当任意一个主键属性无值时，返回 null
@@ -672,6 +683,77 @@
             <param name="update"></param>
             <param name="columnType"></param>
             <param name="setExp"></param>
+        </member>
+        <member name="T:FreeSql.SqlExt">
+            <summary>
+            SqlExt 是利用自定表达式函数解析功能，解析默认常用的SQL函数，欢迎 PR
+            </summary>
+        </member>
+        <member name="M:FreeSql.SqlExt.Rank">
+            <summary>
+            rank() over(order by ...)
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.DenseRank">
+            <summary>
+            dense_rank() over(order by ...)
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.Count">
+            <summary>
+            count() over(order by ...)
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.Sum(System.Object)">
+            <summary>
+            sum(..) over(order by ...)
+            </summary>
+            <param name="column"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.Avg">
+            <summary>
+            avg(..) over(order by ...)
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.Max``1(``0)">
+            <summary>
+            max(..) over(order by ...)
+            </summary>
+            <typeparam name="T"></typeparam>
+            <param name="column"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.Min``1(``0)">
+            <summary>
+            min(..) over(order by ...)
+            </summary>
+            <typeparam name="T"></typeparam>
+            <param name="column"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.RowNumber">
+            <summary>
+            SqlServer row_number() over(order by ...)
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.Case">
+            <summary>
+            case when .. then .. end
+            </summary>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.SqlExt.GroupConcat(System.Object)">
+            <summary>
+            MySql group_concat(distinct .. order by .. separator ..)
+            </summary>
+            <param name="column"></param>
+            <returns></returns>
         </member>
         <member name="M:FreeSql.FreeSqlBuilder.UseConnectionString(FreeSql.DataType,System.String,System.Type)">
             <summary>
@@ -1361,7 +1443,9 @@
             PostgreSQL: for update nowait<para></para>
             Oracle: for update nowait<para></para>
             Sqlite: 无效果<para></para>
-            达梦: for update nowait
+            达梦: for update nowait<para></para>
+            人大金仓: for update nowait<para></para>
+            神通: for update
             </summary>
             <param name="nowait">noawait</param>
             <returns></returns>
@@ -2405,6 +2489,137 @@
             <param name="parms"></param>
             <returns></returns>
         </member>
+        <member name="M:FreeSql.IAdo.ExecuteReaderAsync(System.Func{System.Data.Common.DbDataReader,System.Threading.Tasks.Task},System.Data.CommandType,System.String,System.Data.Common.DbParameter[])">
+            <summary>
+            查询，若使用读写分离，查询【从库】条件cmdText.StartsWith("SELECT ")，否则查询【主库】
+            </summary>
+            <param name="readerHander"></param>
+            <param name="cmdType"></param>
+            <param name="cmdText"></param>
+            <param name="cmdParms"></param>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteReaderAsync(System.Func{System.Data.Common.DbDataReader,System.Threading.Tasks.Task},System.String,System.Object)">
+            <summary>
+            查询，ExecuteReaderAsync(dr => {}, "select * from user where age > ?age", new { age = 25 })
+            </summary>
+            <param name="cmdText"></param>
+            <param name="parms"></param>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteArrayAsync(System.Data.CommandType,System.String,System.Data.Common.DbParameter[])">
+            <summary>
+            查询
+            </summary>
+            <param name="cmdText"></param>
+            <param name="cmdParms"></param>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteArrayAsync(System.String,System.Object)">
+            <summary>
+            查询，ExecuteArrayAsync("select * from user where age > ?age", new { age = 25 })
+            </summary>
+            <param name="cmdText"></param>
+            <param name="parms"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteDataSetAsync(System.Data.CommandType,System.String,System.Data.Common.DbParameter[])">
+            <summary>
+            查询
+            </summary>
+            <param name="cmdText"></param>
+            <param name="cmdParms"></param>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteDataSetAsync(System.String,System.Object)">
+            <summary>
+            查询，ExecuteDataSetAsync("select * from user where age > ?age; select 2", new { age = 25 })
+            </summary>
+            <param name="cmdText"></param>
+            <param name="parms"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteDataTableAsync(System.Data.CommandType,System.String,System.Data.Common.DbParameter[])">
+            <summary>
+            查询
+            </summary>
+            <param name="cmdText"></param>
+            <param name="cmdParms"></param>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteDataTableAsync(System.String,System.Object)">
+            <summary>
+            查询，ExecuteDataTableAsync("select * from user where age > ?age", new { age = 25 })
+            </summary>
+            <param name="cmdText"></param>
+            <param name="parms"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteNonQueryAsync(System.Data.CommandType,System.String,System.Data.Common.DbParameter[])">
+            <summary>
+            在【主库】执行
+            </summary>
+            <param name="cmdType"></param>
+            <param name="cmdText"></param>
+            <param name="cmdParms"></param>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteNonQueryAsync(System.String,System.Object)">
+            <summary>
+            在【主库】执行，ExecuteNonQueryAsync("delete from user where age > ?age", new { age = 25 })
+            </summary>
+            <param name="cmdText"></param>
+            <param name="parms"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteScalarAsync(System.Data.CommandType,System.String,System.Data.Common.DbParameter[])">
+            <summary>
+            在【主库】执行
+            </summary>
+            <param name="cmdType"></param>
+            <param name="cmdText"></param>
+            <param name="cmdParms"></param>
+        </member>
+        <member name="M:FreeSql.IAdo.ExecuteScalarAsync(System.String,System.Object)">
+            <summary>
+            在【主库】执行，ExecuteScalarAsync("select 1 from user where age > ?age", new { age = 25 })
+            </summary>
+            <param name="cmdText"></param>
+            <param name="parms"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.IAdo.QueryAsync``1(System.Data.CommandType,System.String,System.Data.Common.DbParameter[])">
+            <summary>
+            执行SQL返回对象集合，QueryAsync&lt;User&gt;("select * from user where age > ?age", new SqlParameter { ParameterName = "age", Value = 25 })
+            </summary>
+            <typeparam name="T"></typeparam>
+            <param name="cmdType"></param>
+            <param name="cmdText"></param>
+            <param name="cmdParms"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.IAdo.QueryAsync``1(System.String,System.Object)">
+            <summary>
+            执行SQL返回对象集合，QueryAsync&lt;User&gt;("select * from user where age > ?age", new { age = 25 })
+            </summary>
+            <typeparam name="T"></typeparam>
+            <param name="cmdText"></param>
+            <param name="parms"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.IAdo.QueryAsync``2(System.Data.CommandType,System.String,System.Data.Common.DbParameter[])">
+            <summary>
+            执行SQL返回对象集合，Query&lt;User&gt;("select * from user where age > ?age; select * from address", new SqlParameter { ParameterName = "age", Value = 25 })
+            </summary>
+            <typeparam name="T1"></typeparam>
+            <param name="cmdType"></param>
+            <param name="cmdText"></param>
+            <param name="cmdParms"></param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.IAdo.QueryAsync``2(System.String,System.Object)">
+            <summary>
+            执行SQL返回对象集合，Query&lt;User&gt;("select * from user where age > ?age; select * from address", new { age = 25 })
+            </summary>
+            <typeparam name="T1"></typeparam>
+            <param name="cmdText"></param>
+            <param name="parms"></param>
+            <returns></returns>
+        </member>
         <member name="E:FreeSql.IAop.ParseExpression">
             <summary>
             可自定义解析表达式
@@ -2672,7 +2887,7 @@
         </member>
         <member name="P:FreeSql.ICodeFirst.IsSyncStructureToUpper">
             <summary>
-            转大写同步结构，适用 Oracle/达梦
+            转大写同步结构，适用 Oracle/达梦/人大金仓
             </summary>
         </member>
         <member name="P:FreeSql.ICodeFirst.IsConfigEntityFromDbFirst">
@@ -2933,9 +3148,22 @@
             like
             </summary>
         </member>
+        <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.Equal">
+            <summary>
+            =<para></para>
+            Equal/Equals/Eq 效果相同
+            </summary>
+        </member>
         <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.Equals">
             <summary>
-            =
+            =<para></para>
+            Equal/Equals/Eq 效果相同
+            </summary>
+        </member>
+        <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.Eq">
+            <summary>
+            =<para></para>
+            Equal/Equals/Eq 效果相同
             </summary>
         </member>
         <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.NotEqual">
@@ -2961,6 +3189,37 @@
         <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.LessThanOrEqual">
             <summary>
             &lt;=
+            </summary>
+        </member>
+        <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.Range">
+            <summary>
+            &gt;= and &lt;<para></para>
+            此时 Value 的值格式为逗号分割：value1,value2 或者数组
+            </summary>
+        </member>
+        <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.DateRange">
+            <summary>
+            &gt;= and &lt;<para></para>
+            此时 Value 的值格式为逗号分割：date1,date2 或者数组<para></para>
+            这是专门为日期范围查询定制的操作符，它会处理 date2 + 1，比如：<para></para>
+            当 date2 选择的是 2020-05-30，那查询的时候是 &lt; 2020-05-31<para></para>
+            当 date2 选择的是 2020-05，那查询的时候是 &lt; 2020-06<para></para>
+            当 date2 选择的是 2020，那查询的时候是 &lt; 2021<para></para>
+            当 date2 选择的是 2020-05-30 12，那查询的时候是 &lt; 2020-05-30 13<para></para>
+            当 date2 选择的是 2020-05-30 12:30，那查询的时候是 &lt; 2020-05-30 12:31<para></para>
+            并且 date2 只支持以上 5 种格式 (date1 没有限制)
+            </summary>
+        </member>
+        <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.Any">
+            <summary>
+            in (1,2,3)<para></para>
+            此时 Value 的值格式为逗号分割：value1,value2,value3... 或者数组
+            </summary>
+        </member>
+        <member name="F:FreeSql.Internal.Model.DynamicFilterOperator.NotAny">
+            <summary>
+            not in (1,2,3)<para></para>
+            此时 Value 的值格式为逗号分割：value1,value2,value3... 或者数组
             </summary>
         </member>
         <member name="P:FreeSql.Internal.Model.TableRef.RefMiddleEntityType">
@@ -3005,6 +3264,12 @@
             获取资源
             </summary>
             <param name="timeout">超时</param>
+            <returns></returns>
+        </member>
+        <member name="M:FreeSql.Internal.ObjectPool.IObjectPool`1.GetAsync">
+            <summary>
+            获取资源
+            </summary>
             <returns></returns>
         </member>
         <member name="M:FreeSql.Internal.ObjectPool.IObjectPool`1.Return(FreeSql.Internal.ObjectPool.Object{`0},System.Boolean)">
@@ -3072,6 +3337,12 @@
             </summary>
         </member>
         <member name="M:FreeSql.Internal.ObjectPool.IPolicy`1.OnGet(FreeSql.Internal.ObjectPool.Object{`0})">
+            <summary>
+            从对象池获取对象成功的时候触发，通过该方法统计或初始化对象
+            </summary>
+            <param name="obj">资源对象</param>
+        </member>
+        <member name="M:FreeSql.Internal.ObjectPool.IPolicy`1.OnGetAsync(FreeSql.Internal.ObjectPool.Object{`0})">
             <summary>
             从对象池获取对象成功的时候触发，通过该方法统计或初始化对象
             </summary>
@@ -3382,6 +3653,20 @@
             <param name="that"></param>
             <returns></returns>
         </member>
+        <member name="M:FreeSqlGlobalExtensions.AsTreeCte``1(FreeSql.ISelect{``0},System.Linq.Expressions.Expression{System.Func{``0,System.String}},System.Boolean,System.String,System.Int32)">
+            <summary>
+            使用递归 CTE 查询树型的所有子记录，或者所有父记录。<para></para>
+            通过测试的数据库：MySql8.0、SqlServer、PostgreSQL、Oracle、Sqlite、达梦、人大金仓<para></para>
+            返回隐藏字段：.ToList(a =&gt; new { item = a, level = "a.cte_level", path = "a.cte_path" })
+            </summary>
+            <typeparam name="T1"></typeparam>
+            <param name="that"></param>
+            <param name="up">false(默认)：由父级向子级的递归查询<para></para>true：由子级向父级的递归查询</param>
+            <param name="pathSelector">路径内容选择</param>
+            <param name="pathSeparator">连接路径内容</param>
+            <param name="level">递归层级</param>
+            <returns></returns>
+        </member>
         <member name="M:System.Linq.Expressions.LambadaExpressionExtensions.And``1(System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})">
             <summary>
             使用 and 拼接两个 lambda 表达式
@@ -3550,175 +3835,6 @@
             <returns></returns>
         </member>
         <member name="M:System.Linq.Expressions.LambadaExpressionExtensions.Or``5(System.Linq.Expressions.Expression{System.Func{``0,``1,``2,``3,``4,System.Boolean}},System.Linq.Expressions.Expression{System.Func{``0,``1,``2,``3,``4,System.Boolean}})">
-            <summary>
-            使用 or 拼接两个 lambda 表达式
-            </summary>
-            <returns></returns>
-        </member>
-        <member name="M:System.Linq.Expressions.LambadaExpressionExtensions.Or``5(System.Linq.Expressions.Expression{System.Func{``0,``1,``2,``3,``4,System.Boolean}},System.Boolean,System.Linq.Expressions.Expression{System.Func{``0,``1,``2,``3,``4,System.Boolean}})">
-            <summary>
-            使用 or 拼接两个 lambda 表达式
-            </summary>
-            <param name="exp1"></param>
-            <param name="condition">true 时生效</param>
-            <param name="exp2"></param>
-            <returns></returns>
-        </member>
-        <member name="M:System.Linq.Expressions.LambadaExpressionExtensions.Not``5(System.Linq.Expressions.Expression{System.Func{``0,``1,``2,``3,``4,System.Boolean}},System.Boolean)">
-            <summary>
-            将 lambda 表达式取反
-            </summary>
-            <param name="exp"></param>
-            <param name="condition">true 时生效</param>
-            <returns></returns>
-        </member>
-        <member name="M:FreeUtil.NewMongodbId">
-            <summary>
-            生成类似Mongodb的ObjectId有序、不重复Guid
-            </summary>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Insert``1">
-            <summary>
-            插入数据
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Insert``1(``0)">
-            <summary>
-            插入数据，传入实体
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <param name="source"></param>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Insert``1(``0[])">
-            <summary>
-            插入数据，传入实体数组
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <param name="source"></param>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Insert``1(System.Collections.Generic.List{``0})">
-            <summary>
-            插入数据，传入实体集合
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <param name="source"></param>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Insert``1(System.Collections.Generic.IEnumerable{``0})">
-            <summary>
-            插入数据，传入实体集合
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <param name="source"></param>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.InsertOrUpdate``1">
-            <summary>
-            插入或更新数据<para></para>
-            MySql: on duplicate key update<para></para>
-            PostgreSQL: on conflict do update<para></para>
-            SqlServer: merge into<para></para>
-            Oracle: merge into<para></para>
-            Sqlite: replace into<para></para>
-            Dameng: merge into<para></para>
-            注意：还可以使用 FreeSql.Repository 的 InsertOrUpdate 方法
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Update``1">
-            <summary>
-            修改数据
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Update``1(System.Object)">
-            <summary>
-            修改数据，传入动态条件，如：主键值 | new[]{主键值1,主键值2} | TEntity1 | new[]{TEntity1,TEntity2} | new{id=1}
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <param name="dywhere">主键值、主键值集合、实体、实体集合、匿名对象、匿名对象集合</param>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Select``1">
-            <summary>
-            查询数据
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Select``1(System.Object)">
-            <summary>
-            查询数据，传入动态条件，如：主键值 | new[]{主键值1,主键值2} | TEntity1 | new[]{TEntity1,TEntity2} | new{id=1}
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <param name="dywhere">主键值、主键值集合、实体、实体集合、匿名对象、匿名对象集合</param>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Delete``1">
-            <summary>
-            删除数据
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Delete``1(System.Object)">
-            <summary>
-            删除数据，传入动态条件，如：主键值 | new[]{主键值1,主键值2} | TEntity1 | new[]{TEntity1,TEntity2} | new{id=1}
-            </summary>
-            <typeparam name="T1"></typeparam>
-            <param name="dywhere">主键值、主键值集合、实体、实体集合、匿名对象、匿名对象集合</param>
-            <returns></returns>
-        </member>
-        <member name="M:IFreeSql.Transaction(System.Action)">
-            <summary>
-            开启事务（不支持异步）<para></para>
-            v1.5.0 关闭了线程事务超时自动提交的机制
-            </summary>
-            <param name="handler">事务体 () => {}</param>
-        </member>
-        <member name="M:IFreeSql.Transaction(System.Data.IsolationLevel,System.Action)">
-            <summary>
-            开启事务（不支持异步）<para></para>
-            v1.5.0 关闭了线程事务超时自动提交的机制
-            </summary>
-            <param name="isolationLevel"></param>
-            <param name="handler">事务体 () => {}</param>
-        </member>
-        <member name="P:IFreeSql.Ado">
-            <summary>
-            数据库访问对象
-            </summary>
-        </member>
-        <member name="P:IFreeSql.Aop">
-            <summary>
-            所有拦截方法都在这里
-            </summary>
-        </member>
-        <member name="P:IFreeSql.CodeFirst">
-            <summary>
-            CodeFirst 模式开发相关方法
-            </summary>
-        </member>
-        <member name="P:IFreeSql.DbFirst">
-            <summary>
-            DbFirst 模式开发相关方法
-            </summary>
-        </member>
-        <member name="P:IFreeSql.GlobalFilter">
-            <summary>
-            全局过滤设置，可默认附加为 Select/Update/Delete 条件
-            </summary>
-        </member>
-    </members>
-</doc>
-xpression{System.Func{``0,``1,``2,``3,``4,System.Boolean}})">
             <summary>
             使用 or 拼接两个 lambda 表达式
             </summary>

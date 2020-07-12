@@ -38,7 +38,7 @@ namespace FreeSql.PostgreSQL
                             case "System.Int64": return $"({getExp(operandExp)})::int8";
                             case "System.SByte": return $"({getExp(operandExp)})::int2";
                             case "System.Single": return $"({getExp(operandExp)})::float4";
-                            case "System.String": return $"({getExp(operandExp)})::varchar";
+                            case "System.String": return $"({getExp(operandExp)})::text";
                             case "System.UInt16": return $"({getExp(operandExp)})::int2";
                             case "System.UInt32": return $"({getExp(operandExp)})::int4";
                             case "System.UInt64": return $"({getExp(operandExp)})::int8";
@@ -88,7 +88,7 @@ namespace FreeSql.PostgreSQL
                             if (callExp.Method.DeclaringType.IsNumberType()) return "random()";
                             return null;
                         case "ToString":
-                            if (callExp.Object != null) return callExp.Arguments.Count == 0 ? $"({getExp(callExp.Object)})::varchar" : null;
+                            if (callExp.Object != null) return callExp.Arguments.Count == 0 ? $"({getExp(callExp.Object)})::text" : null;
                             return null;
                     }
 
@@ -120,7 +120,7 @@ namespace FreeSql.PostgreSQL
                                     case "Contains":
                                         var json = getExp(callExp.Arguments[argIndex]);
                                         if (objType == typeof(JArray))
-                                            return $"(coalesce({left},'[]') ? ({json})::varchar)";
+                                            return $"(coalesce({left},'[]') ? ({json})::text)";
                                         if (json.StartsWith("'") && json.EndsWith("'"))
                                             return $"(coalesce({left},'{{}}') @> {_common.FormatSql("{0}", JToken.Parse(json.Trim('\'')))})";
                                         return $"(coalesce({left},'{{}}') @> ({json})::jsonb)";
@@ -367,6 +367,10 @@ namespace FreeSql.PostgreSQL
                         return $"({arg2} is null or {arg2} = '' or ltrim({arg2}) = '')";
                     case "Concat":
                         return _common.StringConcat(exp.Arguments.Select(a => getExp(a)).ToArray(), null);
+                    case "Format":
+                        if (exp.Arguments[0].NodeType != ExpressionType.Constant) throw new Exception($"未实现函数表达式 {exp} 解析，参数 {exp.Arguments[0]} 必须为常量");
+                        var expArgs = exp.Arguments.Where((a, z) => z > 0).Select(a => $"'||({ExpressionLambdaToSql(a, tsc)})||'").ToArray();
+                        return string.Format(ExpressionLambdaToSql(exp.Arguments[0], tsc), expArgs);
                 }
             }
             else
@@ -385,10 +389,10 @@ namespace FreeSql.PostgreSQL
                             if (exp.Arguments[1].Type == typeof(bool) ||
                                 exp.Arguments[1].Type == typeof(StringComparison) && getExp(exp.Arguments[0]).Contains("IgnoreCase")) likeOpt = "ILIKE";
                         }
-                        if (exp.Method.Name == "StartsWith") return $"({left}) {likeOpt} {(args0Value.EndsWith("'") ? args0Value.Insert(args0Value.Length - 1, "%") : $"(({args0Value})::varchar || '%')")}";
-                        if (exp.Method.Name == "EndsWith") return $"({left}) {likeOpt} {(args0Value.StartsWith("'") ? args0Value.Insert(1, "%") : $"('%' || ({args0Value})::varchar)")}";
+                        if (exp.Method.Name == "StartsWith") return $"({left}) {likeOpt} {(args0Value.EndsWith("'") ? args0Value.Insert(args0Value.Length - 1, "%") : $"(({args0Value})::text || '%')")}";
+                        if (exp.Method.Name == "EndsWith") return $"({left}) {likeOpt} {(args0Value.StartsWith("'") ? args0Value.Insert(1, "%") : $"('%' || ({args0Value})::text)")}";
                         if (args0Value.StartsWith("'") && args0Value.EndsWith("'")) return $"({left}) {likeOpt} {args0Value.Insert(1, "%").Insert(args0Value.Length, "%")}";
-                        return $"({left}) {likeOpt} ('%' || ({args0Value})::varchar || '%')";
+                        return $"({left}) {likeOpt} ('%' || ({args0Value})::text || '%')";
                     case "ToLower": return $"lower({left})";
                     case "ToUpper": return $"upper({left})";
                     case "Substring":
@@ -436,7 +440,7 @@ namespace FreeSql.PostgreSQL
                         return left;
                     case "Replace": return $"replace({left}, {getExp(exp.Arguments[0])}, {getExp(exp.Arguments[1])})";
                     case "CompareTo": return $"case when {left} = {getExp(exp.Arguments[0])} then 0 when {left} > {getExp(exp.Arguments[0])} then 1 else -1 end";
-                    case "Equals": return $"({left} = ({getExp(exp.Arguments[0])})::varchar)";
+                    case "Equals": return $"({left} = ({getExp(exp.Arguments[0])})::text)";
                 }
             }
             return null;
@@ -629,7 +633,7 @@ namespace FreeSql.PostgreSQL
                     case "ToInt64": return $"({getExp(exp.Arguments[0])})::int8";
                     case "ToSByte": return $"({getExp(exp.Arguments[0])})::int2";
                     case "ToSingle": return $"({getExp(exp.Arguments[0])})::float4";
-                    case "ToString": return $"({getExp(exp.Arguments[0])})::varchar";
+                    case "ToString": return $"({getExp(exp.Arguments[0])})::text";
                     case "ToUInt16": return $"({getExp(exp.Arguments[0])})::int2";
                     case "ToUInt32": return $"({getExp(exp.Arguments[0])})::int4";
                     case "ToUInt64": return $"({getExp(exp.Arguments[0])})::int8";

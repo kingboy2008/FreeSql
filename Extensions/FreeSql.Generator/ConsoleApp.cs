@@ -109,7 +109,13 @@ new Colorful.Formatter("v" + string.Join(".", typeof(ConsoleApp).Assembly.GetNam
      -DB ""{10},Data Source=document.db""
      
      -DB ""{11},server=127.0.0.1;port=5236;user id=2user;password=123456789;database=2user;poolsize=2""
-                               {11} 是国产达梦数据库
+                               {11} 达梦数据库
+
+     -DB ""{12},Driver={KingbaseES 8.2 ODBC Driver ANSI};Server=127.0.0.1;Port=54321;UID=USER2;PWD=123456789;database=数据库""
+                               {12} 人大金仓数据库
+
+     -DB ""{13},HOST=192.168.164.10;PORT=2003;DATABASE=OSRDB;USERNAME=SYSDBA;PASSWORD=szoscar55;MAXPOOLSIZE=2""
+                               {13} 神舟通用数据库
 
      -Filter                   Table+View+StoreProcedure
                                默认生成：表+视图+存储过程
@@ -120,7 +126,7 @@ new Colorful.Formatter("v" + string.Join(".", typeof(ConsoleApp).Assembly.GetNam
      -FileName                 文件名，默认：{name}.cs
 
      -Output                   保存路径，默认为当前 shell 所在目录
-                               {12}
+                               {14}
 
 ", Color.SlateGray,
 new Colorful.Formatter("使用 FreeSql 快速生成数据库的实体类", Color.SlateGray),
@@ -135,6 +141,8 @@ new Colorful.Formatter("PostgreSQL", Color.Yellow),
 new Colorful.Formatter("Oracle", Color.Yellow),
 new Colorful.Formatter("Sqlite", Color.Yellow),
 new Colorful.Formatter("Dameng", Color.Yellow),
+new Colorful.Formatter("OdbcKingbaseES", Color.Yellow),
+new Colorful.Formatter("ShenTong", Color.Yellow),
 new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新所有实体类", Color.ForestGreen)
 );
                 wait.Set();
@@ -175,7 +183,9 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                             case "oracle": ArgsDbType = DataType.Oracle; break;
                             case "sqlite": ArgsDbType = DataType.Sqlite; break;
                             case "dameng": ArgsDbType = DataType.Dameng; break;
-                            default: throw new ArgumentException($"-DB 参数错误，不支持的类型：{dbargs[0]}");
+                            case "odbckingbasees": ArgsDbType = DataType.OdbcKingbaseES; break;
+                            case "shentong": ArgsDbType = DataType.ShenTong; break;
+                            default: throw new ArgumentException($"-DB 参数错误，不支持的类型：\"{dbargs[0]}\"");
                         }
                         ArgsConnectionString = dbargs[1].Trim();
                         a++;

@@ -232,7 +232,8 @@ namespace FreeSql.Internal
                     {
                         case DataType.MySql:
                         case DataType.OdbcMySql:
-                            if (strlen < 0) colattr.DbType = "TEXT";
+                            if (strlen == -2) colattr.DbType = "LONGTEXT";
+                            else if (strlen < 0) colattr.DbType = "TEXT";
                             else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
                             break;
                         case DataType.SqlServer:
@@ -242,6 +243,8 @@ namespace FreeSql.Internal
                             break;
                         case DataType.PostgreSQL:
                         case DataType.OdbcPostgreSQL:
+                        case DataType.OdbcKingbaseES:
+                        case DataType.ShenTong:
                             if (strlen < 0) colattr.DbType = "TEXT";
                             else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
                             break;
@@ -249,9 +252,13 @@ namespace FreeSql.Internal
                             if (strlen < 0) colattr.DbType = "NCLOB"; //v1.3.2+ https://github.com/dotnetcore/FreeSql/issues/259
                             else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
                             break;
+                        case DataType.Dameng:
+                            if (strlen < 0) colattr.DbType = "TEXT";
+                            else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
+                            break;
                         case DataType.OdbcOracle:
                         case DataType.OdbcDameng:
-                            if (strlen < 0) colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1(4000)");
+                            if (strlen < 0) colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1(4000)"); //ODBC 不支持 NCLOB
                             else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
                             break;
                         case DataType.Sqlite:
@@ -261,6 +268,48 @@ namespace FreeSql.Internal
                         case DataType.MsAccess:
                             charPatten = @"(CHAR|CHAR2|CHARACTER|TEXT)\s*(\([^\)]*\))?";
                             if (strlen < 0) colattr.DbType = "LONGTEXT";
+                            else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
+                            break;
+                    }
+                }
+                if (colattr.MapType == typeof(byte[]) && colattr.StringLength != 0)
+                {
+                    int strlen = colattr.StringLength;
+                    var charPatten = @"(VARBINARY|BINARY|BYTEA)\s*(\([^\)]*\))?";
+                    switch (common._orm.Ado.DataType)
+                    {
+                        case DataType.MySql:
+                        case DataType.OdbcMySql:
+                            if (strlen == -2) colattr.DbType = "LONGBLOB";
+                            else if (strlen < 0) colattr.DbType = "BLOB";
+                            else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
+                            break;
+                        case DataType.SqlServer:
+                        case DataType.OdbcSqlServer:
+                            if (strlen < 0) colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1(MAX)");
+                            else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
+                            break;
+                        case DataType.PostgreSQL:
+                        case DataType.OdbcPostgreSQL:
+                        case DataType.OdbcKingbaseES:
+                        case DataType.ShenTong: //驱动引发的异常:“System.Data.OscarClient.OscarException”(位于 System.Data.OscarClient.dll 中)
+                            colattr.DbType = "BYTEA"; //变长二进制串
+                            break;
+                        case DataType.Oracle:
+                            colattr.DbType = "BLOB";
+                            break;
+                        case DataType.Dameng:
+                            colattr.DbType = "BLOB";
+                            break;
+                        case DataType.OdbcOracle:
+                        case DataType.OdbcDameng:
+                            colattr.DbType = "BLOB";
+                            break;
+                        case DataType.Sqlite:
+                            colattr.DbType = "BLOB";
+                            break;
+                        case DataType.MsAccess:
+                            if (strlen < 0) colattr.DbType = "BLOB";
                             else colattr.DbType = Regex.Replace(colattr.DbType, charPatten, $"$1({strlen})");
                             break;
                     }

@@ -40,6 +40,8 @@ namespace FreeSql
                     case DataType.OdbcSqlServer:
                     case DataType.PostgreSQL:
                     case DataType.OdbcPostgreSQL:
+                    case DataType.OdbcKingbaseES:
+                    case DataType.ShenTong:
                         if (_tableIdentitys.Length == 1)
                         {
                             DbContextFlushCommand();
@@ -105,6 +107,8 @@ namespace FreeSql
                     case DataType.OdbcSqlServer:
                     case DataType.PostgreSQL:
                     case DataType.OdbcPostgreSQL:
+                    case DataType.OdbcKingbaseES:
+                    case DataType.ShenTong:
                         DbContextFlushCommand();
                         var rets = this.OrmInsert(data).ExecuteInserted();
                         if (rets.Count != data.Count()) throw new Exception($"特别错误：批量添加失败，{_db.OrmOriginal.Ado.DataType} 的返回数据，与添加的数目不匹配");
