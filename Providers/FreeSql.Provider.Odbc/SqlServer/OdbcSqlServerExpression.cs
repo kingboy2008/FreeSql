@@ -18,6 +18,10 @@ namespace FreeSql.Odbc.SqlServer
             Func<Expression, string> getExp = exparg => ExpressionLambdaToSql(exparg, tsc);
             switch (exp.NodeType)
             {
+                case ExpressionType.ArrayLength:
+                    var arrOper = (exp as UnaryExpression)?.Operand;
+                    if (arrOper.Type == typeof(byte[])) return $"datalength({getExp(arrOper)})";
+                    break;
                 case ExpressionType.Convert:
                     var operandExp = (exp as UnaryExpression)?.Operand;
                     var gentype = exp.Type.NullableTypeOrThis();
@@ -106,6 +110,16 @@ namespace FreeSql.Odbc.SqlServer
                         objExp = callExp.Arguments.FirstOrDefault();
                         objType = objExp?.Type;
                         argIndex++;
+
+                        if (objType == typeof(string))
+                        {
+                            switch (callExp.Method.Name)
+                            {
+                                case "First":
+                                case "FirstOrDefault":
+                                    return $"substring({getExp(callExp.Arguments[0])}, 1, 1)";
+                            }
+                        }
                     }
                     if (objType == null) objType = callExp.Method.DeclaringType;
                     if (objType != null || objType.IsArrayOrList())
@@ -261,15 +275,37 @@ namespace FreeSql.Odbc.SqlServer
                         var expArgs0 = ExpressionLambdaToSql(exp.Arguments[0], tsc);
                         if (exp.Arguments.Count == 1) return expArgs0;
                         var nchar = expArgs0.StartsWith("N'") ? "N" : "";
-                        var expArgs = exp.Arguments.Where((a, z) => z > 0).Select(a =>
+                        var expArgsHack = exp.Arguments.Count == 2 && exp.Arguments[1].NodeType == ExpressionType.NewArrayInit ?
+                            (exp.Arguments[1] as NewArrayExpression).Expressions : exp.Arguments.Where((a, z) => z > 0);
+                        //3个 {} 时，Arguments 解析出来是分开的
+                        //4个 {} 时，Arguments[1] 只能解析这个出来，然后里面是 NewArray []
+                        var expArgs = expArgsHack.Select(a =>
                         {
                             var atype = (a as UnaryExpression)?.Operand.Type.NullableTypeOrThis() ?? a.Type.NullableTypeOrThis();
-                            if (atype == typeof(string)) return $"'+({ExpressionLambdaToSql(a, tsc)})+{nchar}'";
-                            if (atype == typeof(Guid)) return $"'+cast({ExpressionLambdaToSql(a, tsc)} as char(36))+{nchar}'";
-                            if (atype.IsNumberType()) return $"'+cast({ExpressionLambdaToSql(a, tsc)} as varchar)+{nchar}'";
-                            return $"'+cast({ExpressionLambdaToSql(a, tsc)} as nvarchar(max))+{nchar}'";
+                            if (atype == typeof(string)) return $"'+{_common.IsNull(ExpressionLambdaToSql(a, tsc), "''")}+{nchar}'";
+                            if (atype == typeof(Guid)) return $"'+{_common.IsNull($"cast({ExpressionLambdaToSql(a, tsc)} as char(36))", "''")}+{nchar}'";
+                            if (atype.IsNumberType()) return $"'+{_common.IsNull($"cast({ExpressionLambdaToSql(a, tsc)} as varchar)", "''")}+{nchar}'";
+                            return $"'+{_common.IsNull($"cast({ExpressionLambdaToSql(a, tsc)} as nvarchar(max))", "''")}+{nchar}'";
                         }).ToArray();
                         return string.Format(expArgs0, expArgs);
+                    case "Join":
+                        if (exp.IsStringJoin(out var tolistObjectExp, out var toListMethod, out var toListArgs1))
+                        {
+                            var newToListArgs0 = Expression.Call(tolistObjectExp, toListMethod,
+                                Expression.Lambda(
+                                    Expression.Call(
+                                        typeof(string).GetMethod("Concat", new[] { typeof(object), typeof(object) }),
+                                        Expression.Convert(exp.Arguments[0], typeof(object)),
+                                        Expression.Convert(toListArgs1.Body, typeof(object))),
+                                    toListArgs1.Parameters));
+                            var newToListSql = getExp(newToListArgs0);
+                            if (string.IsNullOrEmpty(newToListSql) == false && newToListSql.StartsWith("(") && newToListSql.EndsWith(")"))
+                            {
+                                newToListSql = $"stuff({newToListSql.Substring(0, newToListSql.Length - 1)} FOR XML PATH('')),1,len({getExp(exp.Arguments[0])}),'')";
+                                return newToListSql;
+                            }
+                        }
+                        break;
                 }
             }
             else

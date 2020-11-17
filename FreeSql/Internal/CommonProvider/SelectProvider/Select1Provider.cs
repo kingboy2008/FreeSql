@@ -12,18 +12,17 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.Internal.CommonProvider
 {
 
     public abstract class Select1Provider<T1> : Select0Provider<ISelect<T1>, T1>, ISelect<T1>
-            where T1 : class
     {
         public Select1Provider(IFreeSql orm, CommonUtils commonUtils, CommonExpression commonExpression, object dywhere) : base(orm, commonUtils, commonExpression, dywhere)
         {
             _whereGlobalFilter = _orm.GlobalFilter.GetFilters();
-            _whereCascadeExpression.AddRange(_whereGlobalFilter.Select(a => a.Where));
         }
 
         protected ISelect<T1> InternalFrom(LambdaExpression lambdaExp)
@@ -119,6 +118,13 @@ namespace FreeSql.Internal.CommonProvider
         public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8> From<T2, T3, T4, T5, T6, T7, T8>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class;
         public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9> From<T2, T3, T4, T5, T6, T7, T8, T9>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, T9, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class;
         public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10> From<T2, T3, T4, T5, T6, T7, T8, T9, T10>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, T9, T10, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class;
+        
+        public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11> From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class;
+        public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12> From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class;
+        public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13> From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class where T13 : class;
+        public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14> From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class where T13 : class where T14 : class;
+        public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15> From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class where T13 : class where T14 : class where T15 : class;
+        public abstract ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16> From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16>(Expression<Func<ISelectFromExpression<T1>, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, ISelectFromExpression<T1>>> exp) where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class where T13 : class where T14 : class where T15 : class where T16 : class;
 
         public ISelectGrouping<TKey, T1> GroupBy<TKey>(Expression<Func<T1, TKey>> columns)
         {
@@ -160,6 +166,8 @@ namespace FreeSql.Internal.CommonProvider
             _tables[0].Parameter = column.Parameters[0];
             return this.InternalOrderByDescending(column.Body);
         }
+        public ISelect<T1> OrderByIf<TMember>(bool condition, Expression<Func<T1, TMember>> column, bool descending = false) =>
+            descending ? this.OrderByDescending(condition, column) : this.OrderBy(condition, column);
 
         public decimal Sum<TMember>(Expression<Func<T1, TMember>> column)
         {
@@ -168,19 +176,97 @@ namespace FreeSql.Internal.CommonProvider
             return this.InternalSum(column.Body);
         }
 
+        class IncludeManyNewInit
+        {
+            public TableInfo Table { get; }
+            public Dictionary<string, IncludeManyNewInit> Childs { get; } = new Dictionary<string, IncludeManyNewInit>();
+            public Expression CurrentExpression { get; }
+            public bool IsOutputPrimary { get; set; }
+            public IncludeManyNewInit(TableInfo table, Expression currentExpression)
+            {
+                this.Table = table;
+                this.CurrentExpression = currentExpression;
+            }
+        }
         public List<TReturn> ToList<TReturn>(Expression<Func<T1, TReturn>> select)
         {
             if (select == null) return this.InternalToList<TReturn>(select?.Body);
             _tables[0].Parameter = select.Parameters[0];
-            return this.InternalToList<TReturn>(select.Body);
+            if (_includeToList?.Any() != true) return this.InternalToList<TReturn>(select.Body);
+
+            var findIncludeMany = new List<string>(); //支持指定已经使用 IncudeMany 的导航属性
+            var map = new ReadAnonymousTypeInfo();
+            var field = new StringBuilder();
+            var index = 0;
+            _commonExpression.ReadAnonymousField(_tables, field, map, ref index, select.Body, this, null, _whereGlobalFilter, findIncludeMany, true);
+            var af = new ReadAnonymousTypeAfInfo(map, field.Length > 0 ? field.Remove(0, 2).ToString() : null);
+            if (findIncludeMany.Any() == false) return this.ToListMapReaderPrivate<TReturn>(af, null);
+
+            var parmExp = Expression.Parameter(_tables[0].Table.Type, _tables[0].Alias);
+            var incNewInit = new IncludeManyNewInit(_tables[0].Table, parmExp);
+            foreach (var inc in _includeInfo)
+            {
+                var curIncNewInit = incNewInit;
+                Expression curParmExp = parmExp;
+                for (var a = 0; a < inc.Value.Length - 1; a++)
+                {
+                    curParmExp = Expression.MakeMemberAccess(parmExp, inc.Value[a].Member);
+                    if (curIncNewInit.Childs.ContainsKey(inc.Value[a].Member.Name) == false)
+                        curIncNewInit.Childs.Add(inc.Value[a].Member.Name, curIncNewInit = new IncludeManyNewInit(_orm.CodeFirst.GetTableByEntity(inc.Value[a].Type), curParmExp));
+                    else
+                        curIncNewInit = curIncNewInit.Childs[inc.Value[a].Member.Name];
+                }
+                curIncNewInit.IsOutputPrimary = true;
+            }
+            MemberInitExpression GetIncludeManyNewInitExpression(IncludeManyNewInit imni)
+            {
+                var bindings = new List<MemberBinding>();
+                if (imni.IsOutputPrimary) bindings.AddRange(imni.Table.Primarys.Select(a => Expression.Bind(imni.Table.Properties[a.CsName], Expression.MakeMemberAccess(imni.CurrentExpression, imni.Table.Properties[a.CsName]))));
+                if (imni.Childs.Any()) bindings.AddRange(imni.Childs.Select(a => Expression.Bind(imni.Table.Properties[a.Key], GetIncludeManyNewInitExpression(a.Value))));
+                return Expression.MemberInit(imni.Table.Type.InternalNewExpression(), bindings);
+            }
+
+            var otherNewInit = GetIncludeManyNewInitExpression(incNewInit); //获取 IncludeMany 包含的最简化字段
+            if (otherNewInit.Bindings.Any() == false) return this.ToListMapReaderPrivate<TReturn>(af, null);
+
+            var otherMap = new ReadAnonymousTypeInfo();
+            field.Clear();
+            _commonExpression.ReadAnonymousField(_tables, field, otherMap, ref index, otherNewInit, this, null, _whereGlobalFilter, null, true);
+            var otherRet = new List<object>();
+            var otherAf = new ReadAnonymousTypeOtherInfo(field.ToString(), otherMap, otherRet);
+
+            af.fillIncludeMany = new List<NativeTuple<string, IList, int>>();
+            var ret = this.ToListMapReaderPrivate<TReturn>(af, new[] { otherAf });
+            this.SetList(otherRet.Select(a => (T1)a).ToList()); //级联加载
+
+            foreach (var fim in af.fillIncludeMany)
+            {
+                var splitKeys = fim.Item1.Split('.');
+                var otherRetItem = otherRet[fim.Item3];
+                var otherRetItemType = _tables[0].Table.Type;
+                foreach(var splitKey in splitKeys)
+                {
+                    otherRetItem = _orm.GetEntityValueWithPropertyName(otherRetItemType, otherRetItem, splitKey);
+                    otherRetItemType = _orm.CodeFirst.GetTableByEntity(otherRetItemType).Properties[splitKey].PropertyType;
+                }
+                if (otherRetItem == null) continue;
+                var otherList = otherRetItem as IEnumerable;
+                foreach (var otherListItem in otherList) fim.Item2.Add(otherListItem);
+            }
+            return ret;
         }
-        
         public List<TDto> ToList<TDto>() => ToList(GetToListDtoSelector<TDto>());
         Expression<Func<T1, TDto>> GetToListDtoSelector<TDto>()
         {
             return Expression.Lambda<Func<T1, TDto>>(
                 typeof(TDto).InternalNewExpression(),
                 _tables[0].Parameter ?? Expression.Parameter(typeof(T1), "a"));
+        }
+        public void ToChunk<TReturn>(Expression<Func<T1, TReturn>> select, int size, Action<FetchCallbackArgs<List<TReturn>>> done)
+        {
+            if (select == null || done == null) return;
+            _tables[0].Parameter = select.Parameters[0];
+            this.InternalToChunk<TReturn>(select.Body, size, done);
         }
 
         public DataTable ToDataTable<TReturn>(Expression<Func<T1, TReturn>> select)
@@ -202,6 +288,11 @@ namespace FreeSql.Internal.CommonProvider
             if (select == null) return default(TReturn);
             _tables[0].Parameter = select.Parameters[0];
             return this.InternalToAggregate<TReturn>(select?.Body);
+        }
+        public ISelect<T1> Aggregate<TReturn>(Expression<Func<ISelectGroupingAggregate<T1>, TReturn>> select, out TReturn result)
+        {
+            result = ToAggregate(select);
+            return this;
         }
 
         public ISelect<T1> Where(Expression<Func<T1, bool>> exp) => WhereIf(true, exp);
@@ -246,27 +337,51 @@ namespace FreeSql.Internal.CommonProvider
             _tables[0].Parameter = exp.Parameters[0];
             return this.InternalWhere(exp?.Body);
         }
-        public ISelect<T1> WhereDynamic(object dywhere, bool not = false) => not == false ?
-            this.Where(_commonUtils.WhereObject(_tables.First().Table, $"{_tables.First().Alias}.", dywhere)) :
-            this.Where($"not({_commonUtils.WhereObject(_tables.First().Table, $"{_tables.First().Alias}.", dywhere)})");
+        public ISelect<T1> WhereDynamic(object dywhere, bool not = false)
+        {
+            if (dywhere is DynamicFilterInfo dyfilter)
+            {
+                if (not == false) return this.WhereDynamicFilter(dyfilter);
+
+                var oldwhere = _where.ToString();
+                _where.Clear();
+
+                this.WhereDynamicFilter(dyfilter);
+                var newwhere = _where.ToString();
+                _where.Clear();
+
+                return this
+                    .Where(oldwhere)
+                    .WhereIf(string.IsNullOrWhiteSpace(newwhere) == false, $"not({newwhere})");
+            }
+            var wheresql = _commonUtils.WhereObject(_tables.First().Table, $"{_tables.First().Alias}.", dywhere);
+            return not == false ? this.Where(wheresql) : this.Where($"not({wheresql})");
+        }
 
         public ISelect<T1> WhereCascade(Expression<Func<T1, bool>> exp)
         {
-            if (exp != null) _whereCascadeExpression.Add(exp);
+            if (exp != null) _whereGlobalFilter.Add(new GlobalFilter.Item { Name = "WhereCascade", Only = false, Where = exp });
             return this;
         }
 
-        public ISelect<T1> WithSql(string sql)
+        public ISelect<T1> WithSql(string sql, object parms = null)
         {
             this.AsTable((type, old) =>
             {
-                if (type == _tables.First().Table?.Type) return $"( {sql} )";
+                if (type == _tables[0].Table?.Type && string.IsNullOrEmpty(sql) == false) return $"( {sql} )";
                 return old;
             });
+            if (parms != null) _params.AddRange(_commonUtils.GetDbParamtersByObject(sql, parms));
             return this;
         }
 
-        public bool Any(Expression<Func<T1, bool>> exp) => this.Where(exp).Any();
+        public bool Any(Expression<Func<T1, bool>> exp)
+        {
+            var oldwhere = _where.ToString();
+            var ret = this.Where(exp).Any();
+            _where.Clear().Append(oldwhere);
+            return ret;
+        }
 
         public TReturn ToOne<TReturn>(Expression<Func<T1, TReturn>> select) => this.Limit(1).ToList(select).FirstOrDefault();
         public TDto ToOne<TDto>() => this.Limit(1).ToList<TDto>().FirstOrDefault();
@@ -276,7 +391,41 @@ namespace FreeSql.Internal.CommonProvider
 
         public override List<T1> ToList(bool includeNestedMembers = false) => base.ToList(_isIncluded || includeNestedMembers);
 
+        public int InsertInto<TTargetEntity>(string tableName, Expression<Func<T1, TTargetEntity>> select) where TTargetEntity : class => base.InternalInsertInto<TTargetEntity>(tableName, select);
+
+        public ISelect<T1> IncludeByPropertyNameIf(bool condition, string property) => condition ? IncludeByPropertyName(property) : this;
+        public ISelect<T1> IncludeByPropertyName(string property)
+        {
+            var exp = ConvertStringPropertyToExpression(property, true);
+            if (exp == null) throw new ArgumentException($"{nameof(property)} 无法解析为表达式树");
+            var memExp = exp as MemberExpression;
+            if (memExp == null) throw new ArgumentException($"{nameof(property)} 无法解析为表达式树2");
+            var parTb = _commonUtils.GetTableByEntity(memExp.Expression.Type);
+            if (parTb == null) throw new ArgumentException($"{nameof(property)} 无法解析为表达式树3");
+            var parTbref = parTb.GetTableRef(memExp.Member.Name, true);
+            if (parTbref == null) throw new ArgumentException($"{nameof(property)} 不是有效的导航属性");
+            switch (parTbref.RefType)
+            {
+                case TableRefType.ManyToMany:
+                case TableRefType.OneToMany:
+                    var funcType = typeof(Func<,>).MakeGenericType(_tables[0].Table.Type, typeof(IEnumerable<>).MakeGenericType(parTbref.RefEntityType));
+                    var navigateSelector = Expression.Lambda(funcType, exp, _tables[0].Parameter);
+                    var incMethod = this.GetType().GetMethod("IncludeMany");
+                    if (incMethod == null) throw new Exception("运行时错误，反射获取 IncludeMany 方法失败");
+                    incMethod.MakeGenericMethod(parTbref.RefEntityType).Invoke(this, new object[] { navigateSelector, null });
+                    break;
+                case TableRefType.ManyToOne:
+                case TableRefType.OneToOne:
+                    _isIncluded = true;
+                    var curTb = _commonUtils.GetTableByEntity(exp.Type);
+                    _commonExpression.ExpressionWhereLambda(_tables, Expression.MakeMemberAccess(exp, curTb.Properties[curTb.ColumnsByCs.First().Value.CsName]), null, null, null);
+                    break;
+            }
+            return this;
+        }
+
         bool _isIncluded = false;
+        public ISelect<T1> IncludeIf<TNavigate>(bool condition, Expression<Func<T1, TNavigate>> navigateSelector) where TNavigate : class => condition ? Include(navigateSelector) : this;
         public ISelect<T1> Include<TNavigate>(Expression<Func<T1, TNavigate>> navigateSelector) where TNavigate : class
         {
             var expBody = navigateSelector?.Body;
@@ -292,7 +441,7 @@ namespace FreeSql.Internal.CommonProvider
             return this;
         }
 
-        static NaviteTuple<ParameterExpression, List<MemberExpression>> GetExpressionStack(Expression exp)
+        static NativeTuple<ParameterExpression, List<MemberExpression>> GetExpressionStack(Expression exp)
         {
             Expression tmpExp = exp;
             ParameterExpression param = null;
@@ -316,7 +465,7 @@ namespace FreeSql.Internal.CommonProvider
                 }
             }
             if (param == null) throw new Exception($"表达式错误，它的顶级对象不是 ParameterExpression：{exp}");
-            return NaviteTuple.Create(param, members.ToList());
+            return NativeTuple.Create(param, members.ToList());
         }
         static MethodInfo GetEntityValueWithPropertyNameMethod = typeof(EntityUtilExtensions).GetMethod("GetEntityValueWithPropertyName");
         static ConcurrentDictionary<Type, ConcurrentDictionary<string, MethodInfo>> _dicTypeMethod = new ConcurrentDictionary<Type, ConcurrentDictionary<string, MethodInfo>>();
@@ -487,7 +636,7 @@ namespace FreeSql.Internal.CommonProvider
             {
                 isAsync = false;
 #else
-            Func<object, bool, Task> includeToListSyncOrAsync = async (listObj, isAsync) =>
+            Func<object, bool, CancellationToken, Task> includeToListSyncOrAsync = async (listObj, isAsync, cancellationToken) =>
             {
 #endif
 
@@ -688,8 +837,8 @@ namespace FreeSql.Internal.CommonProvider
                 if (_tableRules?.Any() == true)
                     foreach (var tr in _tableRules) subSelect.AsTable(tr);
 
-                if (_whereCascadeExpression.Any())
-                    subSelect._whereCascadeExpression.AddRange(_whereCascadeExpression.ToArray());
+                if (_whereGlobalFilter.Any())
+                    subSelect._whereGlobalFilter.AddRange(_whereGlobalFilter.ToArray());
 
                 //subSelect._aliasRule = _aliasRule; //把 SqlServer 查询锁传递下去
                 then?.Invoke(subSelect);
@@ -706,6 +855,15 @@ namespace FreeSql.Internal.CommonProvider
                         if (newinitExpBindings.Any(a => a.Member.Name == tbrefCol.CsName)) continue;
                         var tmpMemberInfo = tbrefCol.Table.Properties[tbrefCol.CsName];
                         newinitExpBindings.Add(Expression.Bind(tmpMemberInfo, Expression.MakeMemberAccess(selectExp.Parameters[0], tmpMemberInfo)));
+                    }
+                    if (subSelect._includeToList.Any()) //如果还有向下 IncludeMany，要把它的主键也查出来
+                    {
+                        foreach (var tbrefPkCol in _commonUtils.GetTableByEntity(tbref.RefEntityType).Primarys)
+                        {
+                            if (newinitExpBindings.Any(a => a.Member.Name == tbrefPkCol.CsName)) continue;
+                            var tmpMemberInfo = tbrefPkCol.Table.Properties[tbrefPkCol.CsName];
+                            newinitExpBindings.Add(Expression.Bind(tmpMemberInfo, Expression.MakeMemberAccess(selectExp.Parameters[0], tmpMemberInfo)));
+                        }
                     }
                     Expression newinitExp = Expression.MemberInit(tmpinitExp.NewExpression, newinitExpBindings.ToList());
                     var selectExpParam = subSelect._tables[0].Parameter ?? Expression.Parameter(typeof(TNavigate), subSelectT1Alias);
@@ -761,8 +919,8 @@ namespace FreeSql.Internal.CommonProvider
                                 {
 #if net40
 #else
-                                    if (selectExp == null) subList = await subSelect.ToListAfPrivateAsync(sbSql.ToString(), af, null);
-                                    else subList = await subSelect.ToListMrPrivateAsync<TNavigate>(sbSql.ToString(), mf, null);
+                                    if (selectExp == null) subList = await subSelect.ToListAfPrivateAsync(sbSql.ToString(), af, null, cancellationToken);
+                                    else subList = await subSelect.ToListMrPrivateAsync<TNavigate>(sbSql.ToString(), mf, null, cancellationToken);
 #endif
                                 }
                                 else
@@ -804,8 +962,8 @@ namespace FreeSql.Internal.CommonProvider
                                 {
 #if net40
 #else
-                                    if (selectExp == null) subList = await subSelect.ToListAsync(true);
-                                    else subList = await subSelect.ToListAsync<TNavigate>(selectExp);
+                                    if (selectExp == null) subList = await subSelect.ToListAsync(true, cancellationToken);
+                                    else subList = await subSelect.ToListAsync<TNavigate>(selectExp, cancellationToken);
 #endif
                                 }
                                 else
@@ -830,11 +988,11 @@ namespace FreeSql.Internal.CommonProvider
                             {
                                 if (z > 0) sbJoin.Append(" AND ");
                                 sbJoin.Append($"midtb.{_commonUtils.QuoteSqlName(tbref.MiddleColumns[tbref.Columns.Count + z].Attribute.Name)} = a.{_commonUtils.QuoteSqlName(tbref.RefColumns[z].Attribute.Name)}");
-                                if (_whereCascadeExpression.Any())
+                                if (_whereGlobalFilter.Any())
                                 {
-                                    var cascade = _commonExpression.GetWhereCascadeSql(new SelectTableInfo { Alias = "midtb", AliasInit = "midtb", Table = tbrefMid, Type = SelectTableInfoType.InnerJoin }, _whereCascadeExpression, true);
+                                    var cascade = _commonExpression.GetWhereCascadeSql(new SelectTableInfo { Alias = "midtb", AliasInit = "midtb", Table = tbrefMid, Type = SelectTableInfoType.InnerJoin }, _whereGlobalFilter, true);
                                     if (string.IsNullOrEmpty(cascade) == false)
-                                        sbJoin.Append(" AND (").Append(cascade).Append(")");
+                                        sbJoin.Append(" AND ").Append(cascade);
                                 }
                             }
                             subSelect.InnerJoin(sbJoin.ToString());
@@ -929,8 +1087,8 @@ namespace FreeSql.Internal.CommonProvider
                             {
 #if net40
 #else
-                                if (selectExp == null) subList = await subSelect.ToListAfPrivateAsync(sbSql.ToString(), af, otherData == null ? null : new[] { new ReadAnonymousTypeOtherInfo(otherData.field, otherData.map, midList) });
-                                else subList = await subSelect.ToListMrPrivateAsync<TNavigate>(sbSql.ToString(), mf, otherData == null ? null : new[] { new ReadAnonymousTypeOtherInfo(otherData.field, otherData.map, midList) });
+                                if (selectExp == null) subList = await subSelect.ToListAfPrivateAsync(sbSql.ToString(), af, otherData == null ? null : new[] { new ReadAnonymousTypeOtherInfo(otherData.field, otherData.map, midList) }, cancellationToken);
+                                else subList = await subSelect.ToListMrPrivateAsync<TNavigate>(sbSql.ToString(), mf, otherData == null ? null : new[] { new ReadAnonymousTypeOtherInfo(otherData.field, otherData.map, midList) }, cancellationToken);
 #endif
                             }
                             else
@@ -1007,11 +1165,16 @@ namespace FreeSql.Internal.CommonProvider
 #else
             _includeToList.Add(listObj =>
             {
-                var task = includeToListSyncOrAsync(listObj, false);
+                var task = includeToListSyncOrAsync(listObj, false, default);
                 if (task.Exception != null) throw task.Exception.InnerException ?? task.Exception;
             });
-            _includeToListAsync.Add(listObj => includeToListSyncOrAsync(listObj, true));
+            _includeToListAsync.Add((listObj, cancellationToken) => includeToListSyncOrAsync(listObj, true, cancellationToken));
 #endif
+            var includeValue = new MemberExpression[members.Count + 1];
+            for (var a = 0; a < members.Count; a++) includeValue[a] = members[a];
+            includeValue[includeValue.Length - 1] = expBody as MemberExpression;
+            var includeKey = $"{string.Join(".", includeValue.Select(a => a.Member.Name))}";
+            if (_includeInfo.ContainsKey(includeKey) == false) _includeInfo.Add(includeKey, includeValue);
             return this;
         }
 
@@ -1024,63 +1187,132 @@ namespace FreeSql.Internal.CommonProvider
 
 #if net40
 #else
-        async internal Task SetListAsync(IEnumerable<T1> list)
+        async internal Task SetListAsync(IEnumerable<T1> list, CancellationToken cancellationToken = default)
         {
-            foreach (var include in _includeToListAsync) await include?.Invoke(list);
+            foreach (var include in _includeToListAsync) await include?.Invoke(list, cancellationToken);
             _trackToList?.Invoke(list);
         }
 
-        public Task<double> AvgAsync<TMember>(Expression<Func<T1, TMember>> column)
+        public Task<double> AvgAsync<TMember>(Expression<Func<T1, TMember>> column, CancellationToken cancellationToken = default)
         {
             if (column == null) return Task.FromResult(default(double));
             _tables[0].Parameter = column.Parameters[0];
-            return this.InternalAvgAsync(column?.Body);
+            return this.InternalAvgAsync(column?.Body, cancellationToken);
         }
-        public Task<TMember> MaxAsync<TMember>(Expression<Func<T1, TMember>> column)
+        public Task<TMember> MaxAsync<TMember>(Expression<Func<T1, TMember>> column, CancellationToken cancellationToken = default)
         {
             if (column == null) return Task.FromResult(default(TMember));
             _tables[0].Parameter = column.Parameters[0];
-            return this.InternalMaxAsync<TMember>(column?.Body);
+            return this.InternalMaxAsync<TMember>(column?.Body, cancellationToken);
         }
-        public Task<TMember> MinAsync<TMember>(Expression<Func<T1, TMember>> column)
+        public Task<TMember> MinAsync<TMember>(Expression<Func<T1, TMember>> column, CancellationToken cancellationToken = default)
         {
             if (column == null) return Task.FromResult(default(TMember));
             _tables[0].Parameter = column.Parameters[0];
-            return this.InternalMinAsync<TMember>(column?.Body);
+            return this.InternalMinAsync<TMember>(column?.Body, cancellationToken);
         }
-        public Task<decimal> SumAsync<TMember>(Expression<Func<T1, TMember>> column)
+        public Task<decimal> SumAsync<TMember>(Expression<Func<T1, TMember>> column, CancellationToken cancellationToken = default)
         {
             if (column == null) return Task.FromResult(default(decimal));
             _tables[0].Parameter = column.Parameters[0];
-            return this.InternalSumAsync(column?.Body);
+            return this.InternalSumAsync(column?.Body, cancellationToken);
         }
-        public Task<List<TReturn>> ToListAsync<TReturn>(Expression<Func<T1, TReturn>> select)
+        async public Task<List<TReturn>> ToListAsync<TReturn>(Expression<Func<T1, TReturn>> select, CancellationToken cancellationToken = default)
         {
-            if (select == null) return this.InternalToListAsync<TReturn>(select?.Body);
+            if (select == null) return await this.InternalToListAsync<TReturn>(select?.Body, cancellationToken);
             _tables[0].Parameter = select.Parameters[0];
-            return this.InternalToListAsync<TReturn>(select?.Body);
-        }
-        public Task<List<TDto>> ToListAsync<TDto>() => ToListAsync(GetToListDtoSelector<TDto>());
+            if (_includeToList?.Any() != true) return await this.InternalToListAsync<TReturn>(select.Body, cancellationToken);
 
-        public Task<DataTable> ToDataTableAsync<TReturn>(Expression<Func<T1, TReturn>> select)
-        {
-            if (select == null) return this.InternalToDataTableAsync(select?.Body);
-            _tables[0].Parameter = select.Parameters[0];
-            return this.InternalToDataTableAsync(select?.Body);
+            var findIncludeMany = new List<string>(); //支持指定已经使用 IncudeMany 的导航属性
+            var map = new ReadAnonymousTypeInfo();
+            var field = new StringBuilder();
+            var index = 0;
+            _commonExpression.ReadAnonymousField(_tables, field, map, ref index, select.Body, this, null, _whereGlobalFilter, findIncludeMany, true);
+            var af = new ReadAnonymousTypeAfInfo(map, field.Length > 0 ? field.Remove(0, 2).ToString() : null);
+            if (findIncludeMany.Any() == false) return await this.ToListMapReaderPrivateAsync<TReturn>(af, null, cancellationToken);
+
+            var parmExp = Expression.Parameter(_tables[0].Table.Type, _tables[0].Alias);
+            var incNewInit = new IncludeManyNewInit(_tables[0].Table, parmExp);
+            foreach (var inc in _includeInfo)
+            {
+                var curIncNewInit = incNewInit;
+                Expression curParmExp = parmExp;
+                for (var a = 0; a < inc.Value.Length - 1; a++)
+                {
+                    curParmExp = Expression.MakeMemberAccess(parmExp, inc.Value[a].Member);
+                    if (curIncNewInit.Childs.ContainsKey(inc.Value[a].Member.Name) == false)
+                        curIncNewInit.Childs.Add(inc.Value[a].Member.Name, curIncNewInit = new IncludeManyNewInit(_orm.CodeFirst.GetTableByEntity(inc.Value[a].Type), curParmExp));
+                    else
+                        curIncNewInit = curIncNewInit.Childs[inc.Value[a].Member.Name];
+                }
+                curIncNewInit.IsOutputPrimary = true;
+            }
+            MemberInitExpression GetIncludeManyNewInitExpression(IncludeManyNewInit imni)
+            {
+                var bindings = new List<MemberBinding>();
+                if (imni.IsOutputPrimary) bindings.AddRange(imni.Table.Primarys.Select(a => Expression.Bind(imni.Table.Properties[a.CsName], Expression.MakeMemberAccess(imni.CurrentExpression, imni.Table.Properties[a.CsName]))));
+                if (imni.Childs.Any()) bindings.AddRange(imni.Childs.Select(a => Expression.Bind(imni.Table.Properties[a.Key], GetIncludeManyNewInitExpression(a.Value))));
+                return Expression.MemberInit(imni.Table.Type.InternalNewExpression(), bindings);
+            }
+
+            var otherNewInit = GetIncludeManyNewInitExpression(incNewInit); //获取 IncludeMany 包含的最简化字段
+            if (otherNewInit.Bindings.Any() == false) return await this.ToListMapReaderPrivateAsync<TReturn>(af, null, cancellationToken);
+
+            var otherMap = new ReadAnonymousTypeInfo();
+            field.Clear();
+            _commonExpression.ReadAnonymousField(_tables, field, otherMap, ref index, otherNewInit, this, null, _whereGlobalFilter, null, true);
+            var otherRet = new List<object>();
+            var otherAf = new ReadAnonymousTypeOtherInfo(field.ToString(), otherMap, otherRet);
+
+            af.fillIncludeMany = new List<NativeTuple<string, IList, int>>();
+            var ret = await this.ToListMapReaderPrivateAsync<TReturn>(af, new[] { otherAf }, cancellationToken);
+            await this.SetListAsync(otherRet.Select(a => (T1)a).ToList(), cancellationToken); //级联加载
+
+            foreach (var fim in af.fillIncludeMany)
+            {
+                var splitKeys = fim.Item1.Split('.');
+                var otherRetItem = otherRet[fim.Item3];
+                var otherRetItemType = _tables[0].Table.Type;
+                foreach (var splitKey in splitKeys)
+                {
+                    otherRetItem = _orm.GetEntityValueWithPropertyName(otherRetItemType, otherRetItem, splitKey);
+                    otherRetItemType = _orm.CodeFirst.GetTableByEntity(otherRetItemType).Properties[splitKey].PropertyType;
+                }
+                if (otherRetItem == null) continue;
+                var otherList = otherRetItem as IEnumerable;
+                foreach (var otherListItem in otherList) fim.Item2.Add(otherListItem);
+            }
+            return ret;
         }
-        public Task<TReturn> ToAggregateAsync<TReturn>(Expression<Func<ISelectGroupingAggregate<T1>, TReturn>> select)
+        public Task<List<TDto>> ToListAsync<TDto>(CancellationToken cancellationToken = default) => ToListAsync(GetToListDtoSelector<TDto>(), cancellationToken);
+
+        public Task<int> InsertIntoAsync<TTargetEntity>(string tableName, Expression<Func<T1, TTargetEntity>> select, CancellationToken cancellationToken = default) where TTargetEntity : class => base.InternalInsertIntoAsync<TTargetEntity>(tableName, select, cancellationToken);
+
+        public Task<DataTable> ToDataTableAsync<TReturn>(Expression<Func<T1, TReturn>> select, CancellationToken cancellationToken = default)
+        {
+            if (select == null) return this.InternalToDataTableAsync(select?.Body, cancellationToken);
+            _tables[0].Parameter = select.Parameters[0];
+            return this.InternalToDataTableAsync(select?.Body, cancellationToken);
+        }
+        public Task<TReturn> ToAggregateAsync<TReturn>(Expression<Func<ISelectGroupingAggregate<T1>, TReturn>> select, CancellationToken cancellationToken = default)
         {
             if (select == null) return Task.FromResult(default(TReturn));
             _tables[0].Parameter = select.Parameters[0];
-            return this.InternalToAggregateAsync<TReturn>(select?.Body);
+            return this.InternalToAggregateAsync<TReturn>(select?.Body, cancellationToken);
         }
 
-        public Task<bool> AnyAsync(Expression<Func<T1, bool>> exp) => this.Where(exp).AnyAsync();
-        async public Task<TReturn> ToOneAsync<TReturn>(Expression<Func<T1, TReturn>> select) => (await this.Limit(1).ToListAsync(select)).FirstOrDefault();
-        async public Task<TDto> ToOneAsync<TDto>() => (await this.Limit(1).ToListAsync<TDto>()).FirstOrDefault();
-        public Task<TReturn> FirstAsync<TReturn>(Expression<Func<T1, TReturn>> select) => this.ToOneAsync(select);
-        public Task<TDto> FirstAsync<TDto>() => this.ToOneAsync<TDto>();
-        public override Task<List<T1>> ToListAsync(bool includeNestedMembers = false) => base.ToListAsync(_isIncluded || includeNestedMembers);
+        async public Task<bool> AnyAsync(Expression<Func<T1, bool>> exp, CancellationToken cancellationToken = default)
+        {
+            var oldwhere = _where.ToString();
+            var ret = await this.Where(exp).AnyAsync(cancellationToken);
+            _where.Clear().Append(oldwhere);
+            return ret;
+        }
+        async public Task<TReturn> ToOneAsync<TReturn>(Expression<Func<T1, TReturn>> select, CancellationToken cancellationToken = default) => (await this.Limit(1).ToListAsync(select, cancellationToken)).FirstOrDefault();
+        async public Task<TDto> ToOneAsync<TDto>(CancellationToken cancellationToken = default) => (await this.Limit(1).ToListAsync<TDto>(cancellationToken)).FirstOrDefault();
+        public Task<TReturn> FirstAsync<TReturn>(Expression<Func<T1, TReturn>> select, CancellationToken cancellationToken = default) => this.ToOneAsync(select, cancellationToken);
+        public Task<TDto> FirstAsync<TDto>(CancellationToken cancellationToken = default) => this.ToOneAsync<TDto>(cancellationToken);
+        public override Task<List<T1>> ToListAsync(bool includeNestedMembers = false, CancellationToken cancellationToken = default) => base.ToListAsync(_isIncluded || includeNestedMembers, cancellationToken);
 #endif
     }
 }

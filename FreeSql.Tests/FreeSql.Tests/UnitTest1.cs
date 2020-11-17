@@ -183,73 +183,73 @@ namespace FreeSql.Tests
         {
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "article_id", IsIdentity = true, IsPrimary = true)]
             public int ArticleId { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "article_title")]
             public string ArticleTitle { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "category_id")]
             public int CategoryId { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "channel_id")]
             public int ChannelId { get; set; }
 
             /// <summary>
             /// 类型
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "type_id")]
             public int TypeId { get; set; }
 
             /// <summary>
             /// 内容简介
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "summary")]
             public string Summary { get; set; }
 
             /// <summary>
             /// 缩略图
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "thumbnail")]
             public string Thumbnail { get; set; }
 
             /// <summary>
             /// 点击量
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "hits")]
             public int Hits { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "is_display")]
             public int IsDisplay { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "status")]
             public int Status { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "create_time")]
             public int CreateTime { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "release_time")]
             public int ReleaseTime { get; set; }
 
@@ -435,9 +435,24 @@ namespace FreeSql.Tests
         }
         public enum TestUpdateModelEnum { x1, x2, x3 }
 
+        public class Cadre
+        {
+            public int? education { get; set; }
+            public int? Education { get; set; }
+        }
+        public class TbCadre
+        {
+            public Guid Id { get; set; }
+            public int? Education2 { get; set; }
+        }
+
         [Fact]
         public void Test1()
         {
+            g.sqlite.Insert(new[] { new TbCadre { Education2 = 10 }, new TbCadre { Education2 = 11 } }).ExecuteAffrows();
+            var tst102 = g.sqlite.Select<TbCadre>().First(a => new Cadre { Education = a.Education2 });
+
+
             var testemoji = new TestGuidId { xxx = "💐🌸💮🌹🌺🌻🌼🌷🌱🌿🍀" };
             Assert.Equal(1, g.sqlserver.Insert(testemoji).ExecuteAffrows());
             var emoji = g.sqlserver.Select<TestGuidId>().Where(a => a.Id == testemoji.Id).First();
@@ -762,14 +777,14 @@ namespace FreeSql.Tests
 
             //var testaddlist = new List<NewsArticle>();
             //for(var a = 0; a < 133905; a++) {
-            //	testaddlist.Add(new NewsArticle {
-            //		ArticleTitle = "testaddlist_topic" + a,
-            //		Hits = a,
-            //	});
+            //    testaddlist.Add(new NewsArticle {
+            //        ArticleTitle = "testaddlist_topic" + a,
+            //        Hits = a,
+            //    });
             //}
             //g.sqlite.Insert<NewsArticle>(testaddlist)
-            //	//.NoneParameter()
-            //	.ExecuteAffrows();
+            //    //.NoneParameter()
+            //    .ExecuteAffrows();
 
 
             g.mysql.Aop.ParseExpression += (s, e) =>
@@ -996,7 +1011,7 @@ namespace FreeSql.Tests
                  {
                      b.Key.Title,
                      b.Key.yyyy,
-
+                     b.Key,
                      cou = b.Count(),
                      sum = b.Sum(b.Key.yyyy),
                      sum2 = b.Sum(b.Value.TypeGuid)
@@ -1225,9 +1240,9 @@ namespace FreeSql.Tests
             //);
 
             //var sql4 = select.From<TestTypeInfo, TestTypeParentInfo>((a, b, c) => new SelectFrom()
-            //	.InnerJoin(a.TypeGuid == b.Guid)
-            //	.LeftJoin(c.Id == b.ParentId)
-            //	.Where(b.Name == "xxx"))
+            //    .InnerJoin(a.TypeGuid == b.Guid)
+            //    .LeftJoin(c.Id == b.ParentId)
+            //    .Where(b.Name == "xxx"))
             //.Where(a => a.Id == 1).ToSql();
 
             var sql4 = select.From<TestTypeInfo, TestTypeParentInfo>((s, b, c) => s

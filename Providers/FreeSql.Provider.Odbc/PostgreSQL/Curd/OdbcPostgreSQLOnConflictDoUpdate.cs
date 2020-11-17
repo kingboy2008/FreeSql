@@ -6,6 +6,7 @@ using System.Data;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.Odbc.PostgreSQL
@@ -24,6 +25,7 @@ namespace FreeSql.Odbc.PostgreSQL
         {
             _pgsqlInsert = insert as OdbcPostgreSQLInsert<T1>;
             if (_pgsqlInsert == null) throw new Exception("OnConflictDoUpdate 是 FreeSql.Provider.Odbc/PostgreSQL 特有的功能");
+            if (_pgsqlInsert._noneParameterFlag == "c") _pgsqlInsert._noneParameterFlag = "cu";
 
             if (columns != null)
             {
@@ -158,7 +160,7 @@ namespace FreeSql.Odbc.PostgreSQL
             Exception exception = null;
             try
             {
-                ret = _pgsqlInsert.InternalOrm.Ado.ExecuteNonQuery(_pgsqlInsert.InternalConnection, _pgsqlInsert.InternalTransaction, CommandType.Text, sql, _pgsqlInsert.InternalParams);
+                ret = _pgsqlInsert.InternalOrm.Ado.ExecuteNonQuery(_pgsqlInsert.InternalConnection, _pgsqlInsert.InternalTransaction, CommandType.Text, sql, _pgsqlInsert._commandTimeout, _pgsqlInsert.InternalParams);
             }
             catch (Exception ex)
             {
@@ -176,7 +178,7 @@ namespace FreeSql.Odbc.PostgreSQL
 
 #if net40
 #else
-        async public Task<long> ExecuteAffrowsAsync()
+        async public Task<long> ExecuteAffrowsAsync(CancellationToken cancellationToken = default)
         {
             var sql = this.ToSql();
             if (string.IsNullOrEmpty(sql)) return 0;
@@ -187,7 +189,7 @@ namespace FreeSql.Odbc.PostgreSQL
             Exception exception = null;
             try
             {
-                ret = await _pgsqlInsert.InternalOrm.Ado.ExecuteNonQueryAsync(_pgsqlInsert.InternalConnection, _pgsqlInsert.InternalTransaction, CommandType.Text, sql, _pgsqlInsert.InternalParams);
+                ret = await _pgsqlInsert.InternalOrm.Ado.ExecuteNonQueryAsync(_pgsqlInsert.InternalConnection, _pgsqlInsert.InternalTransaction, CommandType.Text, sql, _pgsqlInsert._commandTimeout, _pgsqlInsert.InternalParams, cancellationToken);
             }
             catch (Exception ex)
             {

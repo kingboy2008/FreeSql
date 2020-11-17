@@ -5,12 +5,13 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.MsAccess.Curd
 {
 
-    class MsAccessUpdate<T1> : Internal.CommonProvider.UpdateProvider<T1> where T1 : class
+    class MsAccessUpdate<T1> : Internal.CommonProvider.UpdateProvider<T1>
     {
 
         public MsAccessUpdate(IFreeSql orm, CommonUtils commonUtils, CommonExpression commonExpression, object dywhere)
@@ -54,24 +55,24 @@ namespace FreeSql.MsAccess.Curd
         {
             if (_table.Primarys.Length == 1)
             {
-                sb.Append(_commonUtils.FormatSql("{0}", _table.Primarys.First().GetMapValue(d)));
+                sb.Append(_commonUtils.FormatSql("{0}", _table.Primarys[0].GetDbValue(d)));
                 return;
             }
             var pkidx = 0;
             foreach (var pk in _table.Primarys)
             {
                 if (pkidx > 0) sb.Append(" + '+' + ");
-                sb.Append(MsAccessUtils.GetCastSql(_commonUtils.FormatSql("{0}", pk.GetMapValue(d)), typeof(string)));
+                sb.Append(MsAccessUtils.GetCastSql(_commonUtils.FormatSql("{0}", pk.GetDbValue(d)), typeof(string)));
                 ++pkidx;
             }
         }
 
 #if net40
 #else
-        public override Task<int> ExecuteAffrowsAsync() => base.SplitExecuteAffrowsAsync(1, 1000);
-        public override Task<List<T1>> ExecuteUpdatedAsync() => base.SplitExecuteUpdatedAsync(1, 1000);
+        public override Task<int> ExecuteAffrowsAsync(CancellationToken cancellationToken = default) => base.SplitExecuteAffrowsAsync(1, 1000, cancellationToken);
+        public override Task<List<T1>> ExecuteUpdatedAsync(CancellationToken cancellationToken = default) => base.SplitExecuteUpdatedAsync(1, 1000, cancellationToken);
 
-        protected override Task<List<T1>> RawExecuteUpdatedAsync()
+        protected override Task<List<T1>> RawExecuteUpdatedAsync(CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException();
         }

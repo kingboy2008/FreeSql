@@ -12,6 +12,172 @@ namespace FreeSql.Tests.MySql
     public class MySqlCodeFirstTest
     {
         [Fact]
+        public void Timestamp01()
+        {
+            var fsql = g.mysql;
+            var items = fsql.Select<timestamp01>().ToList();
+            fsql.Delete<timestamp01>().Where("1=1").ExecuteAffrows();
+
+            var item = new timestamp01 { time = DateTime.Now };
+            fsql.Insert(item).ExecuteAffrows();
+            var newitem = fsql.Select<timestamp01>().WhereDynamic(item).First();
+            Assert.Equal(item.id, newitem.id);
+            Assert.Equal(item.time.ToString("yyyy-MM-dd HH:mm"), newitem.time.ToString("yyyy-MM-dd HH:mm"));
+
+            item = new timestamp01 { time = DateTime.Now };
+            fsql.Insert(item).NoneParameter().ExecuteAffrows();
+            newitem = fsql.Select<timestamp01>().WhereDynamic(item).First();
+            Assert.Equal(item.time.ToString("yyyy-MM-dd HH:mm"), newitem.time.ToString("yyyy-MM-dd HH:mm"));
+
+
+            fsql.Delete<timestamp02>().Where("1=1").ExecuteAffrows();
+            var user01 = new timestamp02();
+            fsql.Insert(user01).ExecuteAffrows();
+            var user01s = fsql.Select<timestamp02>().Count(out var count).Page(0, 100).ToList();
+        }
+        class timestamp01
+        {
+            public Guid id { get; set; }
+            [Column(DbType = "timestamp")]
+            public DateTime time { get; set; }
+        }
+        public class timestamp02
+        {
+            public long UID { get; set; } = 123;
+            public string Alias { get; set; }
+            public bool Fixed { get; set; }
+            public string Avatar { get; set; }
+            public DateTime Created { get; set; } //= DateTime.Now;
+            public long CreatedBy { get; set; }
+            public DateTime Modified { get; set; }// = DateTime.Now;
+            public long ModifiedBy { get; set; }
+        }
+
+        [Fact]
+        public void EnumStartValue1()
+        {
+            var fsql = g.mysql;
+            fsql.Delete<TS_ESV1>().Where("1=1").ExecuteAffrows();
+
+            var repo = fsql.GetRepository<TS_ESV1>();
+            var item1 = repo.Insert(new TS_ESV1 { Status = TS_TSV1_Status.Status1 });
+            Assert.True(fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status1, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status1, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First(a => a.Status));
+            Assert.True(repo.Select.Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status1, repo.Select.Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status1, repo.Select.Where(a => a.Id == item1.Id).First(a => a.Status));
+
+            Assert.Equal($"UPDATE `TS_ESV1` SET `Status` = 'Status1' WHERE (`Id` = '{item1.Id}')", fsql.Update<TS_ESV1>().Where(a => a.Id == item1.Id).NoneParameter().Set(a => a.Status, TS_TSV1_Status.Status1).ToSql().Replace("\r\n", ""));
+            Assert.Equal($"UPDATE `TS_ESV1` SET `Status` = 'Status2' WHERE (`Id` = '{item1.Id}')", fsql.Update<TS_ESV1>().Where(a => a.Id == item1.Id).NoneParameter().Set(a => a.Status, TS_TSV1_Status.Status2).ToSql().Replace("\r\n", ""));
+            Assert.Equal($"UPDATE `TS_ESV1` SET `Status` = 'Status3' WHERE (`Id` = '{item1.Id}')", fsql.Update<TS_ESV1>().Where(a => a.Id == item1.Id).NoneParameter().Set(a => a.Status, TS_TSV1_Status.Status3).ToSql().Replace("\r\n", ""));
+            Assert.Equal($"UPDATE `TS_ESV1` SET `Status` = 'Status1' WHERE (`Id` = '{item1.Id}')", fsql.Update<TS_ESV1>().Where(a => a.Id == item1.Id).NoneParameter().Set(a => a.Status == TS_TSV1_Status.Status1).ToSql().Replace("\r\n", ""));
+            Assert.Equal($"UPDATE `TS_ESV1` SET `Status` = 'Status2' WHERE (`Id` = '{item1.Id}')", fsql.Update<TS_ESV1>().Where(a => a.Id == item1.Id).NoneParameter().Set(a => a.Status == TS_TSV1_Status.Status2).ToSql().Replace("\r\n", ""));
+            Assert.Equal($"UPDATE `TS_ESV1` SET `Status` = 'Status3' WHERE (`Id` = '{item1.Id}')", fsql.Update<TS_ESV1>().Where(a => a.Id == item1.Id).NoneParameter().Set(a => a.Status == TS_TSV1_Status.Status3).ToSql().Replace("\r\n", ""));
+
+            item1.Status = TS_TSV1_Status.Status1;
+            repo.Update(item1);
+            Assert.True(fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status1, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status1, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First(a => a.Status));
+            Assert.True(repo.Select.Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status1, repo.Select.Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status1, repo.Select.Where(a => a.Id == item1.Id).First(a => a.Status));
+
+            item1.Status = TS_TSV1_Status.Status2;
+            repo.Update(item1);
+            Assert.True(fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status2, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status2, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First(a => a.Status));
+            Assert.True(repo.Select.Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status2, repo.Select.Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status2, repo.Select.Where(a => a.Id == item1.Id).First(a => a.Status));
+
+            item1.Status = TS_TSV1_Status.Status3;
+            repo.Update(item1);
+            Assert.True(fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status3, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status3, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First(a => a.Status));
+            Assert.True(repo.Select.Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status3, repo.Select.Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status3, repo.Select.Where(a => a.Id == item1.Id).First(a => a.Status));
+
+            item1.Status = TS_TSV1_Status.Status3;
+            fsql.GetRepository<TS_ESV1>().Update(item1);
+            Assert.True(fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status3, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status3, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First(a => a.Status));
+            Assert.True(repo.Select.Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status3, repo.Select.Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status3, repo.Select.Where(a => a.Id == item1.Id).First(a => a.Status));
+
+            item1.Status = TS_TSV1_Status.Status2;
+            fsql.GetRepository<TS_ESV1>().Update(item1);
+            Assert.True(fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status2, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status2, fsql.Select<TS_ESV1>().Where(a => a.Id == item1.Id).First(a => a.Status));
+            Assert.True(repo.Select.Where(a => a.Id == item1.Id).Any());
+            Assert.Equal(TS_TSV1_Status.Status2, repo.Select.Where(a => a.Id == item1.Id).First().Status);
+            Assert.Equal(TS_TSV1_Status.Status2, repo.Select.Where(a => a.Id == item1.Id).First(a => a.Status));
+        }
+        public class TS_ESV1
+        {
+            public Guid Id { get; set; }
+            public TS_TSV1_Status Status { get; set; }
+        }
+        public enum TS_TSV1_Status
+        {
+            Status1 = 1,
+            Status2 = 3,
+            Status3 = 5
+        }
+
+        [Fact]
+        public void DateTime_1()
+        {
+            var item1 = new TS_DATETIME01 { CreateTime = DateTime.Now };
+            Assert.Equal(1, g.mysql.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.mysql.Select<TS_DATETIME01>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+
+            item1.CreateTime = DateTime.Now;
+            Assert.Equal(1, g.mysql.Update<TS_DATETIME01>().SetSource(item1).ExecuteAffrows());
+            item2 = g.mysql.Select<TS_DATETIME01>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+        }
+        class TS_DATETIME01
+        {
+            public Guid Id { get; set; }
+            [Column(DbType = "datetime NULL")]
+            public DateTime? CreateTime { get; set; }
+        }
+        [Fact]
+        public void DateTime_2()
+        {
+            var item1 = new TS_DATETIME02 { CreateTime = DateTime.Now };
+            Assert.Equal(1, g.mysql.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.mysql.Select<TS_DATETIME02>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+
+            item1.CreateTime = DateTime.Now;
+            Assert.Equal(1, g.mysql.Update<TS_DATETIME02>().SetSource(item1).ExecuteAffrows());
+            item2 = g.mysql.Select<TS_DATETIME02>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+        }
+        class TS_DATETIME02
+        {
+            public Guid Id { get; set; }
+            [Column(DbType = "datetime NOT NULL")]
+            public DateTime? CreateTime { get; set; }
+        }
+
+        [Fact]
         public void Text_StringLength_1()
         {
             var str1 = string.Join(",", Enumerable.Range(0, 1000).Select(a => "我是中国人"));
@@ -237,6 +403,7 @@ namespace FreeSql.Tests.MySql
         {
             var sql = g.mysql.CodeFirst.GetComparisonDDLStatements<AddUniquesInfo>();
             g.mysql.CodeFirst.SyncStructure<AddUniquesInfo>();
+            g.mysql.CodeFirst.SyncStructure(typeof(AddUniquesInfo), "AddUniquesInfo1");
         }
         [Table(Name = "AddUniquesInfo", OldName = "AddUniquesInfo2")]
         [Index("uk_phone", "phone", true)]
@@ -280,57 +447,7 @@ namespace FreeSql.Tests.MySql
         {
 
             var sql = g.mysql.CodeFirst.GetComparisonDDLStatements<TableAllType>();
-            if (string.IsNullOrEmpty(sql) == false)
-            {
-                Assert.Equal(@"CREATE TABLE IF NOT EXISTS `cccddd`.`tb_alltype` ( 
-  `Id` INT(11) NOT NULL AUTO_INCREMENT, 
-  `testFieldBool` BIT(1) NOT NULL, 
-  `testFieldSByte` TINYINT(3) NOT NULL, 
-  `testFieldShort` SMALLINT(6) NOT NULL, 
-  `testFieldInt` INT(11) NOT NULL, 
-  `testFieldLong` BIGINT(20) NOT NULL, 
-  `testFieldByte` TINYINT(3) UNSIGNED NOT NULL, 
-  `testFieldUShort` SMALLINT(5) UNSIGNED NOT NULL, 
-  `testFieldUInt` INT(10) UNSIGNED NOT NULL, 
-  `testFieldULong` BIGINT(20) UNSIGNED NOT NULL, 
-  `testFieldDouble` DOUBLE NOT NULL, 
-  `testFieldFloat` FLOAT NOT NULL, 
-  `testFieldDecimal` DECIMAL(10,2) NOT NULL, 
-  `testFieldTimeSpan` TIME NOT NULL, 
-  `testFieldDateTime` DATETIME(3) NOT NULL, 
-  `testFieldBytes` VARBINARY(255), 
-  `testFieldString` VARCHAR(255), 
-  `testFieldGuid` VARCHAR(36), 
-  `testFieldBoolNullable` BIT(1), 
-  `testFieldSByteNullable` TINYINT(3), 
-  `testFieldShortNullable` SMALLINT(6), 
-  `testFieldIntNullable` INT(11), 
-  `testFielLongNullable` BIGINT(20), 
-  `testFieldByteNullable` TINYINT(3) UNSIGNED, 
-  `testFieldUShortNullable` SMALLINT(5) UNSIGNED, 
-  `testFieldUIntNullable` INT(10) UNSIGNED, 
-  `testFieldULongNullable` BIGINT(20) UNSIGNED, 
-  `testFieldDoubleNullable` DOUBLE, 
-  `testFieldFloatNullable` FLOAT, 
-  `testFieldDecimalNullable` DECIMAL(10,2), 
-  `testFieldTimeSpanNullable` TIME, 
-  `testFieldDateTimeNullable` DATETIME(3), 
-  `testFieldGuidNullable` VARCHAR(36), 
-  `testFieldPoint` POINT, 
-  `testFieldLineString` LINESTRING, 
-  `testFieldPolygon` POLYGON, 
-  `testFieldMultiPoint` MULTIPOINT, 
-  `testFieldMultiLineString` MULTILINESTRING, 
-  `testFieldMultiPolygon` MULTIPOLYGON, 
-  `testFieldEnum1` ENUM('E1','E2','E3') NOT NULL, 
-  `testFieldEnum1Nullable` ENUM('E1','E2','E3'), 
-  `testFieldEnum2` SET('F1','F2','F3') NOT NULL, 
-  `testFieldEnum2Nullable` SET('F1','F2','F3'), 
-  PRIMARY KEY (`Id`)
-) Engine=InnoDB;
-", sql);
-            }
-
+            Assert.True(string.IsNullOrEmpty(sql)); //测试运行两次后
             sql = g.mysql.CodeFirst.GetComparisonDDLStatements<Tb_alltype>();
         }
 
@@ -396,6 +513,7 @@ namespace FreeSql.Tests.MySql
                 testFieldShort = short.MaxValue,
                 testFieldShortNullable = short.MinValue,
                 testFieldString = "我是中国人string'\\?!@#$%^&*()_+{}}{~?><<>",
+                testFieldChar = 'X',
                 testFieldTimeSpan = TimeSpan.FromSeconds(999),
                 testFieldTimeSpanNullable = TimeSpan.FromSeconds(60),
                 testFieldUInt = uint.MaxValue,
@@ -415,12 +533,22 @@ namespace FreeSql.Tests.MySql
             item2.Id = (int)insert.AppendData(item2).ExecuteIdentity();
             var newitem2 = select.Where(a => a.Id == item2.Id).ToOne();
             Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             item2.Id = (int)insert.NoneParameter().AppendData(item2).ExecuteIdentity();
             newitem2 = select.Where(a => a.Id == item2.Id).ToOne();
             Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             var items = select.ToList();
+            var itemstb = select.ToDataTable();
+
+            var sql1 = select.Where(a => a.testFieldInt == (int)Tb_alltypeTESTFIELDENUM1.E2).ToSql();
+            var sql2id = (int)Tb_alltypeTESTFIELDENUM1.E2;
+            var sql2 = select.Where(a => a.testFieldInt == sql2id).ToSql();
+            var sql3id = Tb_alltypeTESTFIELDENUM1.E2;
+            var sql4 = select.Where(a => a.testFieldInt == (int)sql3id).ToSql();
+
         }
 
 
@@ -564,6 +692,10 @@ namespace FreeSql.Tests.MySql
             public string TestFieldString { get; set; }
 
 
+            [JsonProperty, Column(Name = "testFieldChar", DbType = "char(1)", IsNullable = true)]
+            public char testFieldChar { get; set; }
+
+
             [JsonProperty, Column(Name = "testFieldTimeSpan", DbType = "time")]
             public TimeSpan TestFieldTimeSpan { get; set; }
 
@@ -668,6 +800,7 @@ namespace FreeSql.Tests.MySql
 
             public byte[] testFieldBytes { get; set; }
             public string testFieldString { get; set; }
+            public char testFieldChar { get; set; }
             public Guid testFieldGuid { get; set; }
 
             public bool? testFieldBoolNullable { get; set; }

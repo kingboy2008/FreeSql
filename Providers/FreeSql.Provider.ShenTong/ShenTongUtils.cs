@@ -38,6 +38,7 @@ namespace FreeSql.ShenTong
             { typeof(ushort).FullName, a => int.Parse(string.Concat(a)) }, { typeof(ushort[]).FullName, a => getParamterArrayValue(typeof(int), a, 0) }, { typeof(ushort?[]).FullName, a => getParamterArrayValue(typeof(int?), a, null) },
             { typeof(byte).FullName, a => short.Parse(string.Concat(a)) }, { typeof(byte[]).FullName, a => getParamterArrayValue(typeof(short), a, 0) }, { typeof(byte?[]).FullName, a => getParamterArrayValue(typeof(short?), a, null) },
             { typeof(sbyte).FullName, a => short.Parse(string.Concat(a)) }, { typeof(sbyte[]).FullName, a => getParamterArrayValue(typeof(short), a, 0) }, { typeof(sbyte?[]).FullName, a => getParamterArrayValue(typeof(short?), a, null) },
+            { typeof(char).FullName, a => string.Concat(a).Replace('\0', ' ').ToCharArray().FirstOrDefault() },
         };
         static object getParamterValue(Type type, object value, int level = 0)
         {
@@ -136,7 +137,7 @@ namespace FreeSql.ShenTong
         public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
         public override string QuoteReadColumn(Type type, Type mapType, string columnName) => columnName;
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);
@@ -160,7 +161,7 @@ namespace FreeSql.ShenTong
                 {
                     var item = valueArr.GetValue(a);
                     if (a > 0) sb.Append(",");
-                    sb.Append(GetNoneParamaterSqlValue(specialParams, eleType, item));
+                    sb.Append(GetNoneParamaterSqlValue(specialParams, specialParamFlag, col, eleType, item));
                 }
                 sb.Append("]");
                 var dbinfo = _orm.CodeFirst.GetDbInfo(type);

@@ -78,19 +78,19 @@ namespace FreeSql
         protected virtual void OnModelCreating(ICodeFirst codefirst) { }
 
         #region Set
-        static ConcurrentDictionary<Type, NaviteTuple<PropertyInfo[], bool>> _dicGetDbSetProps = new ConcurrentDictionary<Type, NaviteTuple<PropertyInfo[], bool>>();
+        static ConcurrentDictionary<Type, NativeTuple<PropertyInfo[], bool>> _dicGetDbSetProps = new ConcurrentDictionary<Type, NativeTuple<PropertyInfo[], bool>>();
         internal void InitPropSets()
         {
             var thisType = this.GetType();
             var dicval = _dicGetDbSetProps.GetOrAdd(thisType, tp =>
-                NaviteTuple.Create(
+                NativeTuple.Create(
                     tp.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public)
                         .Where(a => a.PropertyType.IsGenericType &&
                             a.PropertyType == typeof(DbSet<>).MakeGenericType(a.PropertyType.GetGenericArguments()[0])).ToArray(),
                     false));
             if (dicval.Item2 == false)
             {
-                if (_dicGetDbSetProps.TryUpdate(thisType, NaviteTuple.Create(dicval.Item1, true), dicval))
+                if (_dicGetDbSetProps.TryUpdate(thisType, NativeTuple.Create(dicval.Item1, true), dicval))
                     OnModelCreating(OrmOriginal.CodeFirst);
             }
 
@@ -243,6 +243,10 @@ namespace FreeSql
             public class ChangeInfo
             {
                 public object Object { get; set; }
+                /// <summary>
+                /// Type = Update 的时候，获取更新之前的对象
+                /// </summary>
+                public object BeforeObject { get; set; }
                 public EntityChangeType Type { get; set; }
             }
             /// <summary>

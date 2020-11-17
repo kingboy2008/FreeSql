@@ -3,6 +3,7 @@ using System;
 using System.Data;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.MySql.Curd
@@ -17,6 +18,7 @@ namespace FreeSql.MySql.Curd
         {
             _mysqlInsert = insert as MySqlInsert<T1>;
             if (_mysqlInsert == null) throw new Exception("OnDuplicateKeyUpdate 是 FreeSql.Provider.MySql/FreeSql.Provider.MySqlConnector 特有的功能");
+            if (_mysqlInsert._noneParameterFlag == "c") _mysqlInsert._noneParameterFlag = "cu";
         }
 
         protected void ClearData()
@@ -117,7 +119,7 @@ namespace FreeSql.MySql.Curd
             Exception exception = null;
             try
             {
-                ret = _mysqlInsert.InternalOrm.Ado.ExecuteNonQuery(_mysqlInsert.InternalConnection, _mysqlInsert.InternalTransaction, CommandType.Text, sql, _mysqlInsert.InternalParams);
+                ret = _mysqlInsert.InternalOrm.Ado.ExecuteNonQuery(_mysqlInsert.InternalConnection, _mysqlInsert.InternalTransaction, CommandType.Text, sql, _mysqlInsert._commandTimeout, _mysqlInsert.InternalParams);
             }
             catch (Exception ex)
             {
@@ -135,7 +137,7 @@ namespace FreeSql.MySql.Curd
 
 #if net40
 #else
-        async public Task<long> ExecuteAffrowsAsync()
+        async public Task<long> ExecuteAffrowsAsync(CancellationToken cancellationToken = default)
         {
             var sql = this.ToSql();
             if (string.IsNullOrEmpty(sql)) return 0;
@@ -146,7 +148,7 @@ namespace FreeSql.MySql.Curd
             Exception exception = null;
             try
             {
-                ret = await _mysqlInsert.InternalOrm.Ado.ExecuteNonQueryAsync(_mysqlInsert.InternalConnection, _mysqlInsert.InternalTransaction, CommandType.Text, sql, _mysqlInsert.InternalParams);
+                ret = await _mysqlInsert.InternalOrm.Ado.ExecuteNonQueryAsync(_mysqlInsert.InternalConnection, _mysqlInsert.InternalTransaction, CommandType.Text, sql, _mysqlInsert._commandTimeout, _mysqlInsert.InternalParams, cancellationToken);
             }
             catch (Exception ex)
             {

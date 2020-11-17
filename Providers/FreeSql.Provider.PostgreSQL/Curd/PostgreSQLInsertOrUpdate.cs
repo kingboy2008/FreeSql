@@ -35,14 +35,16 @@ namespace FreeSql.PostgreSQL.Curd
                     .WithTransaction(_transaction)
                     .NoneParameter(true) as Internal.CommonProvider.InsertProvider<T1>;
                 insert._source = data;
+                insert._noneParameterFlag = flagInsert ? "cuc" : "cu";
 
                 string sql = "";
                 if (IdentityColumn != null && flagInsert) sql = insert.ToSql();
                 else
                 {
                     var ocdu = new OnConflictDoUpdate<T1>(insert.InsertIdentity());
-                    ocdu.IgnoreColumns(_table.Columns.Values.Where(a => a.Attribute.CanUpdate == false).Select(a => a.Attribute.Name).ToArray());
-                    if (_table.Columns.Values.Where(a => a.Attribute.IsPrimary == false && a.Attribute.CanUpdate == true).Any() == false)
+                    var cols = _table.Columns.Values.Where(a => a.Attribute.IsPrimary == false && a.Attribute.CanUpdate == true && _updateIgnore.ContainsKey(a.Attribute.Name) == false);
+                    ocdu.UpdateColumns(cols.Select(a => a.Attribute.Name).ToArray());
+                    if (_doNothing == true || cols.Any() == false)
                         ocdu.DoNothing();
                     sql = ocdu.ToSql();
                 }

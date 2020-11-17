@@ -3,12 +3,13 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.Sqlite.Curd
 {
 
-    class SqliteDelete<T1> : Internal.CommonProvider.DeleteProvider<T1> where T1 : class
+    class SqliteDelete<T1> : Internal.CommonProvider.DeleteProvider<T1>
     {
         public SqliteDelete(IFreeSql orm, CommonUtils commonUtils, CommonExpression commonExpression, object dywhere)
             : base(orm, commonUtils, commonExpression, dywhere)
@@ -22,7 +23,7 @@ namespace FreeSql.Sqlite.Curd
 
 #if net40
 #else
-        public override Task<List<T1>> ExecuteDeletedAsync()
+        public override Task<List<T1>> ExecuteDeletedAsync(CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException();
         }

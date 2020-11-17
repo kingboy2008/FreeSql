@@ -1,12 +1,16 @@
 ﻿using FreeSql.Internal;
 using FreeSql.Internal.Model;
-using MySql.Data.MySqlClient;
 using FreeSql.Internal.ObjectPool;
 using System;
 using System.Collections;
 using System.Data.Common;
 using System.Text;
 using System.Threading;
+#if MySqlConnector
+using MySqlConnector;
+#else
+using MySql.Data.MySqlClient;
+#endif
 
 namespace FreeSql.MySql
 {
@@ -41,8 +45,10 @@ namespace FreeSql.MySql
 
             if (param is bool || param is bool?)
                 return (bool)param ? 1 : 0;
-            else if (param is string || param is char)
+            else if (param is string)
                 return string.Concat("'", param.ToString().Replace("'", "''").Replace("\\", "\\\\"), "'"); //只有 mysql 需要处理反斜杠
+            else if (param is char)
+                return string.Concat("'", param.ToString().Replace("'", "''").Replace("\\", "\\\\").Replace('\0', ' '), "'");
             else if (param is Enum)
                 return string.Concat("'", param.ToString().Replace("'", "''").Replace("\\", "\\\\"), "'"); //((Enum)val).ToInt64();
             else if (decimal.TryParse(string.Concat(param), out var trydec))
@@ -61,7 +67,7 @@ namespace FreeSql.MySql
             return string.Concat("'", param.ToString().Replace("'", "''").Replace("\\", "\\\\"), "'");
         }
 
-        protected override DbCommand CreateCommand()
+        public override DbCommand CreateCommand()
         {
             return new MySqlCommand();
         }
@@ -73,6 +79,6 @@ namespace FreeSql.MySql
             else pool.Return(conn);
         }
 
-        protected override DbParameter[] GetDbParamtersByObject(string sql, object obj) => _util.GetDbParamtersByObject(sql, obj);
+        public override DbParameter[] GetDbParamtersByObject(string sql, object obj) => _util.GetDbParamtersByObject(sql, obj);
     }
 }

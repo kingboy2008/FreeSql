@@ -6,6 +6,7 @@ using System.Data;
 using System.Data.Common;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.Odbc.Dameng
@@ -66,9 +67,10 @@ namespace FreeSql.Odbc.Dameng
                         sb.Append(col.DbInsertValue);
                     else
                     {
-                        object val = col.GetMapValue(d);
+                        object val = col.GetDbValue(d);
+                        if (val == null && col.Attribute.IsNullable == false) val = col.CsType == typeof(string) ? "" : Utils.GetDataReaderValue(col.CsType.NullableTypeOrThis(), null);//#384
                         if (_noneParameter)
-                            sb.Append(_commonUtils.GetNoneParamaterSqlValue(specialParams, col.Attribute.MapType, val));
+                            sb.Append(_commonUtils.GetNoneParamaterSqlValue(specialParams, _noneParameterFlag, col, col.Attribute.MapType, val));
                         else
                         {
                             sb.Append(_commonUtils.QuoteWriteParamter(col.Attribute.MapType, _commonUtils.QuoteParamterName($"{col.CsName}_{didx}")));
@@ -80,6 +82,7 @@ namespace FreeSql.Odbc.Dameng
                 sb.Append(")");
                 ++didx;
             }
+            if (_noneParameter && specialParams.Any()) _params = specialParams.ToArray();
             if (_source.Count > 1) sb.Append("\r\n SELECT 1 FROM DUAL");
             return sb.ToString();
         }
@@ -100,7 +103,7 @@ namespace FreeSql.Odbc.Dameng
                 _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
                 try
                 {
-                    ret = _orm.Ado.ExecuteNonQuery(_connection, _transaction, CommandType.Text, sql, _params);
+                    ret = _orm.Ado.ExecuteNonQuery(_connection, _transaction, CommandType.Text, sql, _commandTimeout, _params);
                 }
                 catch (Exception ex)
                 {
@@ -123,7 +126,7 @@ namespace FreeSql.Odbc.Dameng
             _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
             try
             {
-                _orm.Ado.ExecuteNonQuery(_connection, _transaction, CommandType.Text, sql, dbParms);
+                _orm.Ado.ExecuteNonQuery(_connection, _transaction, CommandType.Text, sql, _commandTimeout, dbParms);
                 long.TryParse(string.Concat(identParam.Value), out ret);
             }
             catch (Exception ex)
@@ -151,11 +154,11 @@ namespace FreeSql.Odbc.Dameng
 
 #if net40
 #else
-        public override Task<int> ExecuteAffrowsAsync() => base.SplitExecuteAffrowsAsync(_batchValuesLimit > 0 ? _batchValuesLimit : 500, _batchParameterLimit > 0 ? _batchParameterLimit : 999);
-        public override Task<long> ExecuteIdentityAsync() => base.SplitExecuteIdentityAsync(_batchValuesLimit > 0 ? _batchValuesLimit : 500, _batchParameterLimit > 0 ? _batchParameterLimit : 999);
-        public override Task<List<T1>> ExecuteInsertedAsync() => base.SplitExecuteInsertedAsync(_batchValuesLimit > 0 ? _batchValuesLimit : 500, _batchParameterLimit > 0 ? _batchParameterLimit : 999);
+        public override Task<int> ExecuteAffrowsAsync(CancellationToken cancellationToken = default) => base.SplitExecuteAffrowsAsync(_batchValuesLimit > 0 ? _batchValuesLimit : 500, _batchParameterLimit > 0 ? _batchParameterLimit : 999, cancellationToken);
+        public override Task<long> ExecuteIdentityAsync(CancellationToken cancellationToken = default) => base.SplitExecuteIdentityAsync(_batchValuesLimit > 0 ? _batchValuesLimit : 500, _batchParameterLimit > 0 ? _batchParameterLimit : 999, cancellationToken);
+        public override Task<List<T1>> ExecuteInsertedAsync(CancellationToken cancellationToken = default) => base.SplitExecuteInsertedAsync(_batchValuesLimit > 0 ? _batchValuesLimit : 500, _batchParameterLimit > 0 ? _batchParameterLimit : 999, cancellationToken);
 
-        async protected override Task<long> RawExecuteIdentityAsync()
+        async protected override Task<long> RawExecuteIdentityAsync(CancellationToken cancellationToken = default)
         {
             var sql = this.ToSql();
             if (string.IsNullOrEmpty(sql)) return 0;
@@ -170,7 +173,7 @@ namespace FreeSql.Odbc.Dameng
                 _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
                 try
                 {
-                    ret = await _orm.Ado.ExecuteNonQueryAsync(_connection, _transaction, CommandType.Text, sql, _params);
+                    ret = await _orm.Ado.ExecuteNonQueryAsync(_connection, _transaction, CommandType.Text, sql, _commandTimeout, _params, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -193,7 +196,7 @@ namespace FreeSql.Odbc.Dameng
             _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
             try
             {
-                await _orm.Ado.ExecuteNonQueryAsync(_connection, _transaction, CommandType.Text, sql, dbParms);
+                await _orm.Ado.ExecuteNonQueryAsync(_connection, _transaction, CommandType.Text, sql, _commandTimeout, dbParms, cancellationToken);
                 long.TryParse(string.Concat(identParam.Value), out ret);
             }
             catch (Exception ex)
@@ -208,13 +211,13 @@ namespace FreeSql.Odbc.Dameng
             }
             return ret;
         }
-        async protected override Task<List<T1>> RawExecuteInsertedAsync()
+        async protected override Task<List<T1>> RawExecuteInsertedAsync(CancellationToken cancellationToken = default)
         {
             var sql = this.ToSql();
             if (string.IsNullOrEmpty(sql)) return new List<T1>();
 
             var ret = _source.ToList();
-            await this.RawExecuteAffrowsAsync();
+            await this.RawExecuteAffrowsAsync(cancellationToken);
             return ret;
         }
 #endif

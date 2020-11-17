@@ -43,6 +43,7 @@ namespace FreeSql.Odbc.Dameng
 
                 { typeof(byte[]).FullName, CsToDb.New(OdbcType.VarBinary, "blob", "blob NULL", false, null, new byte[0]) },
                 { typeof(string).FullName, CsToDb.New(OdbcType.NVarChar, "nvarchar2", "nvarchar2(255) NULL", false, null, "") },
+                { typeof(char).FullName, CsToDb.New(OdbcType.Char, "char", "char(1) NULL", false, null, '\0') },
 
                 { typeof(Guid).FullName, CsToDb.New(OdbcType.Char, "char", "char(36) NOT NULL", false, false, Guid.Empty) },{ typeof(Guid?).FullName, CsToDb.New(OdbcType.Char, "char", "char(36) NULL", false, true, null) },
             };
@@ -83,7 +84,7 @@ namespace FreeSql.Odbc.Dameng
                 {
                     userId = OdbcDamengConnectionPool.GetUserId(conn.Value.ConnectionString);
                 }
-            var seqcols = new List<NaviteTuple<ColumnInfo, string[], bool>>(); //序列：列，表，自增
+            var seqcols = new List<NativeTuple<ColumnInfo, string[], bool>>(); //序列：列，表，自增
             var seqnameDel = new List<string>(); //要删除的序列+触发器
 
             var sb = new StringBuilder();
@@ -134,7 +135,7 @@ namespace FreeSql.Odbc.Dameng
                         foreach (var tbcol in tb.ColumnsByPosition)
                         {
                             sb.Append(" \r\n  ").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(" ").Append(tbcol.Attribute.DbType).Append(",");
-                            if (tbcol.Attribute.IsIdentity == true) seqcols.Add(NaviteTuple.Create(tbcol, tbname, true));
+                            if (tbcol.Attribute.IsIdentity == true) seqcols.Add(NativeTuple.Create(tbcol, tbname, true));
                         }
                         if (tb.Primarys.Any())
                         {
@@ -150,7 +151,7 @@ namespace FreeSql.Odbc.Dameng
                         {
                             sb.Append("execute immediate 'CREATE ");
                             if (uk.IsUnique) sb.Append("UNIQUE ");
-                            sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(createTableName).Append("(");
+                            sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ReplaceIndexName(uk.Name, tbname[1]))).Append(" ON ").Append(createTableName).Append("(");
                             foreach (var tbcol in uk.Columns)
                             {
                                 sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -245,10 +246,10 @@ where a.owner={{0}} and a.table_name={{1}}", tboldname ?? tbname);
                                 //修改列名
                                 sbalter.Append("execute immediate 'ALTER TABLE ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append(" RENAME COLUMN ").Append(_commonUtils.QuoteSqlName(tbstructcol.column)).Append(" TO ").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append("';\r\n");
                                 if (tbcol.Attribute.IsIdentity)
-                                    seqcols.Add(NaviteTuple.Create(tbcol, tbname, tbcol.Attribute.IsIdentity == true));
+                                    seqcols.Add(NativeTuple.Create(tbcol, tbname, tbcol.Attribute.IsIdentity == true));
                             }
                             else if (tbcol.Attribute.IsIdentity != tbstructcol.is_identity)
-                                seqcols.Add(NaviteTuple.Create(tbcol, tbname, tbcol.Attribute.IsIdentity == true));
+                                seqcols.Add(NativeTuple.Create(tbcol, tbname, tbcol.Attribute.IsIdentity == true));
                             if (isCommentChanged)
                                 sbalter.Append("execute immediate 'COMMENT ON COLUMN ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}.{tbcol.Attribute.Name}")).Append(" IS ").Append(_commonUtils.FormatSql("{0}", tbcol.Comment ?? "").Replace("'", "''")).Append("';\r\n");
                             continue;
@@ -260,7 +261,7 @@ where a.owner={{0}} and a.table_name={{1}}", tboldname ?? tbname);
                             sbalter.Append("execute immediate 'UPDATE ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append(" SET ").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(" = ").Append(tbcol.DbDefaultValue.Replace("'", "''")).Append("';\r\n");
                             sbalter.Append("execute immediate 'ALTER TABLE ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append(" MODIFY ").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(" NOT NULL';\r\n");
                         }
-                        if (tbcol.Attribute.IsIdentity == true) seqcols.Add(NaviteTuple.Create(tbcol, tbname, tbcol.Attribute.IsIdentity == true));
+                        if (tbcol.Attribute.IsIdentity == true) seqcols.Add(NativeTuple.Create(tbcol, tbname, tbcol.Attribute.IsIdentity == true));
                         if (string.IsNullOrEmpty(tbcol.Comment) == false) sbalter.Append("execute immediate 'COMMENT ON COLUMN ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}.{tbcol.Attribute.Name}")).Append(" IS ").Append(_commonUtils.FormatSql("{0}", tbcol.Comment ?? "").Replace("'", "''")).Append("';\r\n");
                     }
                 }
@@ -283,13 +284,14 @@ and not exists(select 1 from all_constraints where index_name = a.index_name and
                     foreach (var uk in tb.Indexes)
                     {
                         if (string.IsNullOrEmpty(uk.Name) || uk.Columns.Any() == false) continue;
-                        var dsukfind1 = dsuk.Where(a => string.Compare(a[1], uk.Name, true) == 0).ToArray();
+                        var ukname = ReplaceIndexName(uk.Name, tbname[1]);
+                        var dsukfind1 = dsuk.Where(a => string.Compare(a[1], ukname, true) == 0).ToArray();
                         if (dsukfind1.Any() == false || dsukfind1.Length != uk.Columns.Length || dsukfind1.Where(a => uk.Columns.Where(b => (a[3] == "1") == uk.IsUnique && string.Compare(b.Column.Attribute.Name, a[0], true) == 0 && (a[2] == "1") == b.IsDesc).Any()).Count() != uk.Columns.Length)
                         {
-                            if (dsukfind1.Any()) sbalter.Append("execute immediate 'DROP INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append("';\r\n");
+                            if (dsukfind1.Any()) sbalter.Append("execute immediate 'DROP INDEX ").Append(_commonUtils.QuoteSqlName(ukname)).Append("';\r\n");
                             sbalter.Append("execute immediate 'CREATE ");
                             if (uk.IsUnique) sbalter.Append("UNIQUE ");
-                            sbalter.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append("(");
+                            sbalter.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ukname)).Append(" ON ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append("(");
                             foreach (var tbcol in uk.Columns)
                             {
                                 sbalter.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -322,7 +324,7 @@ and not exists(select 1 from all_constraints where index_name = a.index_name and
                 foreach (var tbcol in tb.ColumnsByPosition)
                 {
                     sb.Append(" \r\n  ").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(" ").Append(tbcol.Attribute.DbType).Append(",");
-                    if (tbcol.Attribute.IsIdentity == true) seqcols.Add(NaviteTuple.Create(tbcol, tbname, true));
+                    if (tbcol.Attribute.IsIdentity == true) seqcols.Add(NativeTuple.Create(tbcol, tbname, true));
                 }
                 if (tb.Primarys.Any())
                 {
@@ -374,7 +376,7 @@ and not exists(select 1 from all_constraints where index_name = a.index_name and
                 {
                     sb.Append("execute immediate 'CREATE ");
                     if (uk.IsUnique) sb.Append("UNIQUE ");
-                    sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(tablename).Append("(");
+                    sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ReplaceIndexName(uk.Name, tbname[1]))).Append(" ON ").Append(tablename).Append("(");
                     foreach (var tbcol in uk.Columns)
                     {
                         sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));

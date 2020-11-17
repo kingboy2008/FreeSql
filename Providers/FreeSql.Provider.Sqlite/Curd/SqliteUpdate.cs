@@ -5,12 +5,13 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.Sqlite.Curd
 {
 
-    class SqliteUpdate<T1> : Internal.CommonProvider.UpdateProvider<T1> where T1 : class
+    class SqliteUpdate<T1> : Internal.CommonProvider.UpdateProvider<T1>
     {
 
         public SqliteUpdate(IFreeSql orm, CommonUtils commonUtils, CommonExpression commonExpression, object dywhere)
@@ -50,7 +51,7 @@ namespace FreeSql.Sqlite.Curd
         {
             if (_table.Primarys.Length == 1)
             {
-                sb.Append(_commonUtils.FormatSql("{0}", _table.Primarys.First().GetMapValue(d)));
+                sb.Append(_commonUtils.FormatSql("{0}", _table.Primarys[0].GetDbValue(d)));
                 return;
             }
             sb.Append("(");
@@ -58,7 +59,7 @@ namespace FreeSql.Sqlite.Curd
             foreach (var pk in _table.Primarys)
             {
                 if (pkidx > 0) sb.Append(" || '+' || ");
-                sb.Append(_commonUtils.FormatSql("{0}", pk.GetMapValue(d)));
+                sb.Append(_commonUtils.FormatSql("{0}", pk.GetDbValue(d)));
                 ++pkidx;
             }
             sb.Append(")");
@@ -66,10 +67,10 @@ namespace FreeSql.Sqlite.Curd
 
 #if net40
 #else
-        public override Task<int> ExecuteAffrowsAsync() => base.SplitExecuteAffrowsAsync(_batchRowsLimit > 0 ? _batchRowsLimit : 200, _batchParameterLimit > 0 ? _batchParameterLimit : 999);
-        public override Task<List<T1>> ExecuteUpdatedAsync() => base.SplitExecuteUpdatedAsync(_batchRowsLimit > 0 ? _batchRowsLimit : 200, _batchParameterLimit > 0 ? _batchParameterLimit : 999);
+        public override Task<int> ExecuteAffrowsAsync(CancellationToken cancellationToken = default) => base.SplitExecuteAffrowsAsync(_batchRowsLimit > 0 ? _batchRowsLimit : 200, _batchParameterLimit > 0 ? _batchParameterLimit : 999, cancellationToken);
+        public override Task<List<T1>> ExecuteUpdatedAsync(CancellationToken cancellationToken = default) => base.SplitExecuteUpdatedAsync(_batchRowsLimit > 0 ? _batchRowsLimit : 200, _batchParameterLimit > 0 ? _batchParameterLimit : 999, cancellationToken);
 
-        protected override Task<List<T1>> RawExecuteUpdatedAsync()
+        protected override Task<List<T1>> RawExecuteUpdatedAsync(CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException();
         }

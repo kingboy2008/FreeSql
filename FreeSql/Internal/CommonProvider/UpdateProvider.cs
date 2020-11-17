@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 namespace FreeSql.Internal.CommonProvider
 {
 
-    public abstract partial class UpdateProvider<T1> : IUpdate<T1> where T1 : class
+    public abstract partial class UpdateProvider<T1> : IUpdate<T1>
     {
         public IFreeSql _orm;
         public CommonUtils _commonUtils;
@@ -32,8 +32,11 @@ namespace FreeSql.Internal.CommonProvider
         public bool _noneParameter;
         public int _batchRowsLimit, _batchParameterLimit;
         public bool _batchAutoTransaction = true;
+        public Action<BatchProgressStatus<T1>> _batchProgress;
         public DbTransaction _transaction;
         public DbConnection _connection;
+        public int _commandTimeout = 0;
+        public Action<StringBuilder> _interceptSql;
 
         public UpdateProvider(IFreeSql orm, CommonUtils commonUtils, CommonExpression commonExpression, object dywhere)
         {
@@ -86,6 +89,11 @@ namespace FreeSql.Internal.CommonProvider
             _connection = connection;
             return this;
         }
+        public IUpdate<T1> CommandTimeout(int timeout)
+        {
+            _commandTimeout = timeout;
+            return this;
+        }
 
         public IUpdate<T1> NoneParameter(bool isNotCommandParameter = true)
         {
@@ -101,12 +109,18 @@ namespace FreeSql.Internal.CommonProvider
             return this;
         }
 
-        protected void ValidateVersionAndThrow(int affrows)
+        public IUpdate<T1> BatchProgress(Action<BatchProgressStatus<T1>> callback)
+        {
+            _batchProgress = callback;
+            return this;
+        }
+
+        protected void ValidateVersionAndThrow(int affrows, string sql, DbParameter[] dbParms)
         {
             if (_table.VersionColumn != null && _source.Count > 0)
             {
                 if (affrows != _source.Count)
-                    throw new Exception($"记录可能不存在，或者【行级乐观锁】版本过旧，更新数量{_source.Count}，影响的行数{affrows}。");
+                    throw new DbUpdateVersionException($"记录可能不存在，或者【行级乐观锁】版本过旧，更新数量{_source.Count}，影响的行数{affrows}。", _table, sql, dbParms, affrows, _source.Select(a => (object)a));
                 foreach (var d in _source)
                     _orm.SetEntityIncrByWithPropertyName(_table.Type, d, _table.VersionColumn.CsName, 1);
             }
@@ -126,6 +140,7 @@ namespace FreeSql.Internal.CommonProvider
             if (_noneParameter == false)
             {
                 var colSum = _table.Columns.Count - _ignore.Count;
+                if (colSum <= 0) colSum = 1;
                 takeMax = parameterLimit / colSum;
                 if (takeMax > valuesLimit) takeMax = valuesLimit;
             }
@@ -143,12 +158,16 @@ namespace FreeSql.Internal.CommonProvider
             var ret = 0;
             if (ss.Length <= 1)
             {
+                if (_source?.Any() == true) _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, 1, 1));
                 ret = this.RawExecuteAffrows();
                 ClearData();
                 return ret;
             }
             if (_transaction == null)
-                this.WithTransaction(_orm.Ado.TransactionCurrentThread);
+            {
+                var threadTransaction = _orm.Ado.TransactionCurrentThread;
+                if (threadTransaction != null) this.WithTransaction(threadTransaction);
+            }
 
             var before = new Aop.TraceBeforeEventArgs("SplitExecuteAffrows", null);
             _orm.Aop.TraceBeforeHandler?.Invoke(this, before);
@@ -160,11 +179,13 @@ namespace FreeSql.Internal.CommonProvider
                     for (var a = 0; a < ss.Length; a++)
                     {
                         _source = ss[a];
+                        _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
                         ret += this.RawExecuteAffrows();
                     }
                 }
                 else
                 {
+                    if (_orm.Ado.MasterPool == null) throw new Exception("Ado.MasterPool 值为 null，该操作无法自启用事务，请显式传递【事务对象】解决");
                     using (var conn = _orm.Ado.MasterPool.Get())
                     {
                         _transaction = conn.Value.BeginTransaction();
@@ -175,6 +196,7 @@ namespace FreeSql.Internal.CommonProvider
                             for (var a = 0; a < ss.Length; a++)
                             {
                                 _source = ss[a];
+                                _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
                                 ret += this.RawExecuteAffrows();
                             }
                             _transaction.Commit();
@@ -210,12 +232,16 @@ namespace FreeSql.Internal.CommonProvider
             var ret = new List<T1>();
             if (ss.Length <= 1)
             {
+                if (_source?.Any() == true) _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, 1, 1));
                 ret = this.RawExecuteUpdated();
                 ClearData();
                 return ret;
             }
             if (_transaction == null)
-                this.WithTransaction(_orm.Ado.TransactionCurrentThread);
+            {
+                var threadTransaction = _orm.Ado.TransactionCurrentThread;
+                if (threadTransaction != null) this.WithTransaction(threadTransaction);
+            }
 
             var before = new Aop.TraceBeforeEventArgs("SplitExecuteUpdated", null);
             _orm.Aop.TraceBeforeHandler?.Invoke(this, before);
@@ -227,11 +253,13 @@ namespace FreeSql.Internal.CommonProvider
                     for (var a = 0; a < ss.Length; a++)
                     {
                         _source = ss[a];
+                        _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
                         ret.AddRange(this.RawExecuteUpdated());
                     }
                 }
                 else
                 {
+                    if (_orm.Ado.MasterPool == null) throw new Exception("Ado.MasterPool 值为 null，该操作无法自启用事务，请显式传递【事务对象】解决");
                     using (var conn = _orm.Ado.MasterPool.Get())
                     {
                         _transaction = conn.Value.BeginTransaction();
@@ -242,6 +270,7 @@ namespace FreeSql.Internal.CommonProvider
                             for (var a = 0; a < ss.Length; a++)
                             {
                                 _source = ss[a];
+                                _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
                                 ret.AddRange(this.RawExecuteUpdated());
                             }
                             _transaction.Commit();
@@ -283,8 +312,8 @@ namespace FreeSql.Internal.CommonProvider
             Exception exception = null;
             try
             {
-                affrows = _orm.Ado.ExecuteNonQuery(_connection, _transaction, CommandType.Text, sql, dbParms);
-                ValidateVersionAndThrow(affrows);
+                affrows = _orm.Ado.ExecuteNonQuery(_connection, _transaction, CommandType.Text, sql, _commandTimeout, dbParms);
+                ValidateVersionAndThrow(affrows, sql, dbParms);
             }
             catch (Exception ex)
             {
@@ -335,15 +364,17 @@ namespace FreeSql.Internal.CommonProvider
                 if (d == null) continue;
                 foreach (var col in table.Columns.Values)
                 {
-                    object val = col.GetMapValue(d);
+                    object val = col.GetValue(d);
                     var auditArgs = new Aop.AuditValueEventArgs(Aop.AuditValueType.Update, col, table.Properties[col.CsName], val);
                     orm.Aop.AuditValueHandler(sender, auditArgs);
-                    if (auditArgs.IsChanged)
+                    if (auditArgs.ValueIsChanged)
                     {
-                        col.SetMapValue(d, val = auditArgs.Value);
+                        col.SetValue(d, val = auditArgs.Value);
                         if (changedDict != null && changedDict.ContainsKey(col.Attribute.Name) == false)
                             changedDict.Add(col.Attribute.Name, true);
                     }
+                    if (val == null && col.Attribute.MapType == typeof(string) && col.Attribute.IsNullable == false)
+                        col.SetValue(d, val = "");
                 }
             }
         }
@@ -355,15 +386,17 @@ namespace FreeSql.Internal.CommonProvider
                 throw new Exception($"操作的数据类型({data.GetType().DisplayCsharp()}) 与 AsType({table.Type.DisplayCsharp()}) 不一致，请检查。");
             foreach (var col in table.Columns.Values)
             {
-                object val = col.GetMapValue(data);
+                object val = col.GetValue(data);
                 var auditArgs = new Aop.AuditValueEventArgs(Aop.AuditValueType.Update, col, table.Properties[col.CsName], val);
                 orm.Aop.AuditValueHandler(sender, auditArgs);
-                if (auditArgs.IsChanged)
+                if (auditArgs.ValueIsChanged)
                 {
-                    col.SetMapValue(data, val = auditArgs.Value);
+                    col.SetValue(data, val = auditArgs.Value);
                     if (changedDict != null && changedDict.ContainsKey(col.Attribute.Name) == false)
                         changedDict.Add(col.Attribute.Name, true);
                 }
+                if (val == null && col.Attribute.MapType == typeof(string) && col.Attribute.IsNullable == false)
+                    col.SetValue(data, val = "");
             }
         }
 
@@ -388,18 +421,18 @@ namespace FreeSql.Internal.CommonProvider
 
         protected void SetPriv(ColumnInfo col, object value)
         {
-            object paramVal = null;
-            if (col.Attribute.MapType == col.CsType) paramVal = value;
-            else paramVal = Utils.GetDataReaderValue(col.Attribute.MapType, value);
+            object val = null;
+            if (col.Attribute.MapType == col.CsType) val = value;
+            else val = Utils.GetDataReaderValue(col.Attribute.MapType, value);
             _set.Append(", ").Append(_commonUtils.QuoteSqlName(col.Attribute.Name)).Append(" = ");
             if (_noneParameter)
             {
-                _set.Append(_commonUtils.GetNoneParamaterSqlValue(_params, col.Attribute.MapType, paramVal));
+                _set.Append(_commonUtils.GetNoneParamaterSqlValue(_params, "u", col, col.Attribute.MapType, val));
             }
             else
             {
                 _set.Append(_commonUtils.QuoteWriteParamter(col.Attribute.MapType, $"{_commonUtils.QuoteParamterName("p_")}{_params.Count}"));
-                _commonUtils.AppendParamter(_params, null, col, col.Attribute.MapType, paramVal);
+                _commonUtils.AppendParamter(_params, null, col, col.Attribute.MapType, val);
             }
         }
         public IUpdate<T1> Set<TMember>(Expression<Func<T1, TMember>> column, TMember value)
@@ -504,7 +537,12 @@ namespace FreeSql.Internal.CommonProvider
             return this;
         }
 
-        public IUpdate<T1> Where(Expression<Func<T1, bool>> expression) => this.Where(_commonExpression.ExpressionWhereLambdaNoneForeignObject(null, _table, null, expression?.Body, null, _params));
+        public IUpdate<T1> Where(Expression<Func<T1, bool>> exp) => WhereIf(true, exp);
+        public IUpdate<T1> WhereIf(bool condition, Expression<Func<T1, bool>> exp)
+        {
+            if (condition == false || exp == null) return this;
+            return this.Where(_commonExpression.ExpressionWhereLambdaNoneForeignObject(null, _table, null, exp?.Body, null, _params));
+        }
         public IUpdate<T1> Where(string sql, object parms = null)
         {
             if (string.IsNullOrEmpty(sql)) return this;
@@ -550,7 +588,7 @@ namespace FreeSql.Internal.CommonProvider
                 var sb = new StringBuilder();
 
                 sb.Append(_commonUtils.QuoteSqlName(col.Attribute.Name)).Append(" = ");
-                sb.Append(thenValue(_commonUtils.GetNoneParamaterSqlValue(_paramsSource, col.Attribute.MapType, col.GetMapValue(_source.First()))));
+                sb.Append(thenValue(_commonUtils.GetNoneParamaterSqlValue(_paramsSource, "u", col, col.Attribute.MapType, col.GetDbValue(_source.First()))));
 
                 return sb.ToString();
 
@@ -573,8 +611,8 @@ namespace FreeSql.Internal.CommonProvider
                     cwsb.Append(" \r\nWHEN ");
                     ToSqlWhen(cwsb, _table.Primarys, d);
                     cwsb.Append(" THEN ");
-                    var val = col.GetMapValue(d);
-                    cwsb.Append(thenValue(_commonUtils.GetNoneParamaterSqlValue(_paramsSource, col.Attribute.MapType, val)));
+                    var val = col.GetDbValue(d);
+                    cwsb.Append(thenValue(_commonUtils.GetNoneParamaterSqlValue(_paramsSource, "u", col, col.Attribute.MapType, val)));
                     if (val == null || val == DBNull.Value) nulls++;
                 }
                 cwsb.Append(" END");
@@ -635,6 +673,7 @@ namespace FreeSql.Internal.CommonProvider
                 var colidx = 0;
                 foreach (var col in _table.Columns.Values)
                 {
+                    if (col.Attribute.IsPrimary) continue;
                     if (col.Attribute.IsIdentity == false && col.Attribute.IsVersion == false && _ignore.ContainsKey(col.Attribute.Name) == false)
                     {
                         if (colidx > 0) sb.Append(", ");
@@ -644,9 +683,9 @@ namespace FreeSql.Internal.CommonProvider
                             sb.Append(col.DbUpdateValue);
                         else
                         {
-                            var val = col.GetMapValue(_source.First());
+                            var val = col.GetDbValue(_source.First());
                             if (_noneParameter)
-                                sb.Append(_commonUtils.GetNoneParamaterSqlValue(_paramsSource, col.Attribute.MapType, val));
+                                sb.Append(_commonUtils.GetNoneParamaterSqlValue(_paramsSource, "u", col, col.Attribute.MapType, val));
                             else
                             {
                                 sb.Append(_commonUtils.QuoteWriteParamter(col.Attribute.MapType, _commonUtils.QuoteParamterName($"p_{_paramsSource.Count}")));
@@ -672,6 +711,7 @@ namespace FreeSql.Internal.CommonProvider
                 var colidx = 0;
                 foreach (var col in _table.Columns.Values)
                 {
+                    if (col.Attribute.IsPrimary) continue;
                     if (col.Attribute.IsIdentity == false && col.Attribute.IsVersion == false && _ignore.ContainsKey(col.Attribute.Name) == false)
                     {
                         if (colidx > 0) sb.Append(", ");
@@ -688,9 +728,9 @@ namespace FreeSql.Internal.CommonProvider
                                 cwsb.Append(" \r\nWHEN ");
                                 ToSqlWhen(cwsb, _table.Primarys, d);
                                 cwsb.Append(" THEN ");
-                                var val = col.GetMapValue(d);
+                                var val = col.GetDbValue(d);
                                 if (_noneParameter)
-                                    cwsb.Append(_commonUtils.GetNoneParamaterSqlValue(_paramsSource, col.Attribute.MapType, val));
+                                    cwsb.Append(_commonUtils.GetNoneParamaterSqlValue(_paramsSource, "u", col, col.Attribute.MapType, val));
                                 else
                                 {
                                     cwsb.Append(_commonUtils.QuoteWriteParamter(col.Attribute.MapType, _commonUtils.QuoteParamterName($"p_{_paramsSource.Count}")));
@@ -733,14 +773,17 @@ namespace FreeSql.Internal.CommonProvider
 
             sb.Append(" \r\nWHERE ");
             if (_source.Any())
+            {
+                if (_table.Primarys.Any() == false) throw new ArgumentException($"{_table.Type.DisplayCsharp()} 没有定义主键，无法使用 SetSource，请尝试 SetDto");
                 sb.Append("(").Append(_commonUtils.WhereItems(_table, "", _source)).Append(")");
+            }
 
             if (_where.Length > 0)
                 sb.Append(_source.Any() ? _where.ToString() : _where.ToString().Substring(5));
 
             if (_whereGlobalFilter.Any())
             {
-                var globalFilterCondi = _commonExpression.GetWhereCascadeSql(new SelectTableInfo { Table = _table }, _whereGlobalFilter.Select(a => a.Where).ToList(), false);
+                var globalFilterCondi = _commonExpression.GetWhereCascadeSql(new SelectTableInfo { Table = _table }, _whereGlobalFilter, false);
                 if (string.IsNullOrEmpty(globalFilterCondi) == false)
                     sb.Append(" AND ").Append(globalFilterCondi);
             }
@@ -752,6 +795,7 @@ namespace FreeSql.Internal.CommonProvider
                     sb.Append(" AND ").Append(versionCondi);
             }
 
+            _interceptSql?.Invoke(sb);
             return sb.ToString();
         }
     }

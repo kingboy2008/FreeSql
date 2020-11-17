@@ -100,6 +100,11 @@ namespace FreeSql.Tests.SqlServer
             Assert.Equal(1, insert.AppendData(items.First()).ExecuteAffrows());
             Assert.Equal(10, insert.AppendData(items).NoneParameter().ExecuteAffrows());
 
+            Assert.Equal(10, g.sqlserver.Select<Topic>().Limit(10).InsertInto(null, a => new Topic
+            {
+                Title = a.Title
+            }));
+
             //items = Enumerable.Range(0, 9989).Select(a => new Topic { Title = "newtitle" + a, CreateTime = DateTime.Now }).ToList();
             //Assert.Equal(9989, g.sqlserver.Insert<Topic>(items).ExecuteAffrows());
 
@@ -171,6 +176,7 @@ namespace FreeSql.Tests.SqlServer
             for (var a = 0; a < 10; a++) items.Add(new Topic { Id = a + 1, Title = $"newtitle{a}", Clicks = a * 100, CreateTime = DateTime.Now });
 
             insert.AppendData(items).InsertIdentity().ExecuteSqlBulkCopy();
+            //insert.AppendData(items).IgnoreColumns(a => new { a.CreateTime, a.Clicks }).ExecuteSqlBulkCopy();
             // System.NotSupportedException:“DataSet does not support System.Nullable<>.”
         }
 

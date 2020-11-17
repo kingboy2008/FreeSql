@@ -156,9 +156,225 @@ namespace FreeSql.Tests
             }
         }
 
+        class testInsertNullable
+        {
+            [Column(IsNullable = false, IsIdentity = true)]
+            public long Id { get; set; }
+
+            [Column(IsNullable = false)]
+            public string str1 { get; set; }
+            [Column(IsNullable = false)]
+            public int? int1 { get; set; }
+            [Column(IsNullable = true)]
+            public int int2 { get; set; }
+
+            [Column(Precision = 10, Scale = 5)]
+            public decimal? price { get; set; }
+        }
+
+        class testUpdateNonePk
+        {
+            public string name { get; set; }
+        }
+
+        class tq01
+        {
+            public Guid id { get; set; }
+        }
+        class t102
+        {
+            public Guid id { get; set; }
+            public bool isxx { get; set; }
+        }
+
+        public class tcate01
+        {
+            [Column(IsIdentity = true)]
+            public int? Id { get; set; }
+
+            public string name { get; set; }
+            [Navigate(nameof(tshop01.cateId))]
+            public List<tshop01> tshops { get; set; }
+        }
+        public class tshop01
+        {
+            public Guid Id { get; set; }
+
+            public int cateId { get; set; }
+            public tcate01 cate { get; set; }
+        }
+
         [Fact]
         public void Test03()
         {
+            g.sqlite.Delete<tcate01>().Where("1=1").ExecuteAffrows();
+            g.sqlite.Delete<tshop01>().Where("1=1").ExecuteAffrows();
+            var tshoprepo = g.sqlite.GetRepository<tcate01>();
+            tshoprepo.DbContextOptions.EnableAddOrUpdateNavigateList = true;
+            tshoprepo.Insert(new tcate01[]
+            {
+                new tcate01 { name = "tcate1", tshops = new List<tshop01>{ new tshop01(), new tshop01(), new tshop01() } },
+                new tcate01 { name = "tcate1", tshops = new List<tshop01>{ new tshop01(), new tshop01(), new tshop01() } }
+            });
+
+            var tshop01sql = g.sqlite.Select<tshop01>().Include(a => a.cate).ToSql();
+            var tshop02sql = g.sqlite.Select<tshop01>().IncludeByPropertyName("cate").ToSql();
+
+            var tshop03sql = g.sqlite.Select<tshop01>().IncludeMany(a => a.cate.tshops).ToSql();
+            var tshop04sql = g.sqlite.Select<tshop01>().IncludeByPropertyName("cate.tshops").ToSql();
+
+            var tshop01lst = g.sqlite.Select<tshop01>().Include(a => a.cate).ToList();
+            var tshop02lst = g.sqlite.Select<tshop01>().IncludeByPropertyName("cate").ToList();
+
+            var tshop03lst = g.sqlite.Select<tshop01>().IncludeMany(a => a.cate.tshops).ToList();
+            var tshop04lst = g.sqlite.Select<tshop01>().IncludeByPropertyName("cate.tshops").ToList();
+
+
+
+            var testisnullsql1 = g.sqlite.Select<t102>().Where(a => SqlExt.IsNull(a.isxx, false).Equals( true)).ToSql();
+            var testisnullsql2 = g.sqlite.Select<t102>().Where(a => SqlExt.IsNull(a.isxx, false).Equals(false)).ToSql();
+
+            var guid1 = Guid.NewGuid();
+            var guid2 = Guid.NewGuid();
+            var guid3 = Guid.NewGuid();
+            var tqsql = g.sqlite.Select<tq01, t102, t102>()
+                .WithSql(
+                    g.sqlite.Select<tq01>().As("sub1").Where(a => a.id == guid1).ToSql(),
+                    g.sqlite.Select<t102>().As("sub2").Where(a => a.id == guid2).ToSql(),
+                    g.sqlite.Select<t102>().As("sub3").Where(a => a.id == guid3).ToSql()
+                )
+                .LeftJoin((a, b, c) => a.id == b.id)
+                .LeftJoin((a, b, c) => b.id == c.id)
+                .ToSql();
+                
+
+
+            var updateSql = g.sqlite.Update<object>()
+                .AsType(typeof(testInsertNullable))
+                .SetDto(new { str1 = "xxx" })
+                .WhereDynamic(1)
+                .ToSql();
+
+            var sqlextMax112 = g.sqlserver.Select<EdiItem>()
+                .GroupBy(a => a.Id)
+                .ToSql(a => new
+                {
+                    Id = a.Key,
+                    EdiId1 = SqlExt.Max(a.Key).Over().PartitionBy(new { a.Value.EdiId, a.Value.Id }).OrderByDescending(new { a.Value.EdiId, a.Value.Id }).ToValue(),
+                    EdiId2 = SqlExt.Max(a.Key).Over().PartitionBy(a.Value.EdiId).OrderByDescending(a.Value.Id).ToValue(),
+                    EdiId3 = SqlExt.Sum(a.Key).ToValue(),
+                    EdiId4 = a.Sum(a.Key)
+                });
+
+            Assert.Throws<ArgumentException>(() => g.sqlite.Update<testUpdateNonePk>().SetSource(new testUpdateNonePk()).ExecuteAffrows());
+
+            g.sqlite.Insert(new testInsertNullable()).NoneParameter().ExecuteAffrows();
+
+
+            g.sqlite.Select<testInsertNullable>().Select(a => a.Id).ToList();
+
+            var ddlsql = g.sqlite.CodeFirst.GetComparisonDDLStatements(typeof(testInsertNullable), "tb123123");
+            Assert.Equal(@"CREATE TABLE IF NOT EXISTS ""main"".""tb123123"" (  
+  ""Id"" INTEGER PRIMARY KEY AUTOINCREMENT, 
+  ""str1"" NVARCHAR(255) NOT NULL, 
+  ""int1"" INTEGER NOT NULL, 
+  ""int2"" INTEGER , 
+  ""price"" DECIMAL(10,5)
+) 
+;
+", ddlsql);
+
+            var select16Sql1 = g.sqlite.Select<userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo>()
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => b.userid == a.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => c.userid == b.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => d.userid == c.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => e.userid == d.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => f.userid == e.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => g.userid == f.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => h.userid == g.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => i.userid == h.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => j.userid == i.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => k.userid == j.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => l.userid == k.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => m.userid == l.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => n.userid == m.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => o.userid == n.userid)
+                .InnerJoin((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => p.userid == o.userid)
+                .ToSql((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => p);
+            Assert.Equal(@"SELECT p.""userid"" as1, p.""badgenumber"" as2, p.""ssn"" as3, p.""IDCardNo"" as4, p.""name"" as5, p.""title"" as6, p.""birthday"" as7, p.""hiredday"" as8, p.""hetongdate"" as9, p.""street"" as10, p.""zip"" as11, p.""ophone"" as12, p.""pager"" as13, p.""fphone"" as14, p.""CardNo"" as15, p.""email"" as16, p.""idcardvalidtime"" as17, p.""homeaddress"" as18, p.""minzu"" as19, p.""leavedate"" as20, p.""loginpass"" as21, p.""picurl"" as22, p.""managerid"" as23 
+FROM ""userinfo"" a 
+INNER JOIN ""userinfo"" b ON b.""userid"" = a.""userid"" 
+INNER JOIN ""userinfo"" c ON c.""userid"" = b.""userid"" 
+INNER JOIN ""userinfo"" d ON d.""userid"" = c.""userid"" 
+INNER JOIN ""userinfo"" e ON e.""userid"" = d.""userid"" 
+INNER JOIN ""userinfo"" f ON f.""userid"" = e.""userid"" 
+INNER JOIN ""userinfo"" g ON g.""userid"" = f.""userid"" 
+INNER JOIN ""userinfo"" h ON h.""userid"" = g.""userid"" 
+INNER JOIN ""userinfo"" i ON i.""userid"" = h.""userid"" 
+INNER JOIN ""userinfo"" j ON j.""userid"" = i.""userid"" 
+INNER JOIN ""userinfo"" k ON k.""userid"" = j.""userid"" 
+INNER JOIN ""userinfo"" l ON l.""userid"" = k.""userid"" 
+INNER JOIN ""userinfo"" m ON m.""userid"" = l.""userid"" 
+INNER JOIN ""userinfo"" n ON n.""userid"" = m.""userid"" 
+INNER JOIN ""userinfo"" o ON o.""userid"" = n.""userid"" 
+INNER JOIN ""userinfo"" p ON p.""userid"" = o.""userid""", select16Sql1);
+            var select16Sql2 = g.sqlite.Select<userinfo>()
+                .From<userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo, userinfo>(
+                    (s, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => s
+                    .InnerJoin(a => b.userid == a.userid)
+                    .InnerJoin(a => c.userid == b.userid)
+                    .InnerJoin(a => d.userid == c.userid)
+                    .InnerJoin(a => e.userid == d.userid)
+                    .InnerJoin(a => f.userid == e.userid)
+                    .InnerJoin(a => g.userid == f.userid)
+                    .InnerJoin(a => h.userid == g.userid)
+                    .InnerJoin(a => i.userid == h.userid)
+                    .InnerJoin(a => j.userid == i.userid)
+                    .InnerJoin(a => k.userid == j.userid)
+                    .InnerJoin(a => l.userid == k.userid)
+                    .InnerJoin(a => m.userid == l.userid)
+                    .InnerJoin(a => n.userid == m.userid)
+                    .InnerJoin(a => o.userid == n.userid)
+                    .InnerJoin(a => p.userid == o.userid)
+                )
+                .ToSql((a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => p);
+            Assert.Equal(@"SELECT p.""userid"" as1, p.""badgenumber"" as2, p.""ssn"" as3, p.""IDCardNo"" as4, p.""name"" as5, p.""title"" as6, p.""birthday"" as7, p.""hiredday"" as8, p.""hetongdate"" as9, p.""street"" as10, p.""zip"" as11, p.""ophone"" as12, p.""pager"" as13, p.""fphone"" as14, p.""CardNo"" as15, p.""email"" as16, p.""idcardvalidtime"" as17, p.""homeaddress"" as18, p.""minzu"" as19, p.""leavedate"" as20, p.""loginpass"" as21, p.""picurl"" as22, p.""managerid"" as23 
+FROM ""userinfo"" a 
+INNER JOIN ""userinfo"" b ON b.""userid"" = a.""userid"" 
+INNER JOIN ""userinfo"" c ON c.""userid"" = b.""userid"" 
+INNER JOIN ""userinfo"" d ON d.""userid"" = c.""userid"" 
+INNER JOIN ""userinfo"" e ON e.""userid"" = d.""userid"" 
+INNER JOIN ""userinfo"" f ON f.""userid"" = e.""userid"" 
+INNER JOIN ""userinfo"" g ON g.""userid"" = f.""userid"" 
+INNER JOIN ""userinfo"" h ON h.""userid"" = g.""userid"" 
+INNER JOIN ""userinfo"" i ON i.""userid"" = h.""userid"" 
+INNER JOIN ""userinfo"" j ON j.""userid"" = i.""userid"" 
+INNER JOIN ""userinfo"" k ON k.""userid"" = j.""userid"" 
+INNER JOIN ""userinfo"" l ON l.""userid"" = k.""userid"" 
+INNER JOIN ""userinfo"" m ON m.""userid"" = l.""userid"" 
+INNER JOIN ""userinfo"" n ON n.""userid"" = m.""userid"" 
+INNER JOIN ""userinfo"" o ON o.""userid"" = n.""userid"" 
+INNER JOIN ""userinfo"" p ON p.""userid"" = o.""userid""", select16Sql2);
+
+
+            var sqlxx = g.pgsql.InsertOrUpdate<userinfo>().SetSource(new userinfo { userid = 10 }).UpdateColumns(a => new { a.birthday, a.CardNo }).ToSql();
+
+            var aff1 = g.sqlite.GetRepository<Edi, long>().Delete(10086);
+            var aff2 = g.sqlite.Delete<Edi>(10086).ExecuteAffrows();
+            Assert.Equal(aff1, aff2);
+
+            g.sqlserver.Delete<Edi>().Where("1=1").ExecuteAffrows();
+            g.sqlserver.Delete<EdiItem>().Where("1=1").ExecuteAffrows();
+            g.sqlserver.Insert(new[] { new Edi { Id = 1 }, new Edi { Id = 2 }, new Edi { Id = 3 }, new Edi { Id = 4 }, new Edi { Id = 5 } }).ExecuteAffrows();
+            g.sqlserver.Insert(new[] { 
+                new EdiItem { Id = 1, EdiId = 1 }, new EdiItem { Id = 2, EdiId = 1 }, new EdiItem { Id = 3, EdiId = 1 } ,
+                new EdiItem { Id = 4, EdiId = 2 }, new EdiItem { Id = 5, EdiId = 2 },
+                new EdiItem { Id = 6, EdiId = 3 }, new EdiItem { Id = 7, EdiId = 3 },
+                new EdiItem { Id = 8, EdiId = 4 }, new EdiItem { Id = 9, EdiId = 4 }, 
+                new EdiItem { Id = 10, EdiId = 5 }, new EdiItem { Id = 11, EdiId = 5 },
+            }).ExecuteAffrows();
+
+
             var testStringFormat = g.sqlite.Select<Edi>().First(a => new {
                 str = $"x{a.Id}_{DateTime.Now.ToString("yyyyMM")}z",
                 str2 = string.Format("{0}x{0}_{1}z", a.Id, DateTime.Now.ToString("yyyyMM"))
@@ -175,6 +391,22 @@ namespace FreeSql.Tests
                 
                 .Page(1, 10).ToSql("Id");
 
+            var sqlextMax1 = g.sqlserver.Select<EdiItem>()
+                .GroupBy(a => a.Id)
+                .ToSql(a => new
+                {
+                    Id = a.Key, 
+                    EdiId1 = SqlExt.Max(a.Key).Over().PartitionBy(new { a.Value.EdiId, a.Value.Id }).OrderByDescending(new { a.Value.EdiId, a.Value.Id }).ToValue(),
+                    EdiId2 = SqlExt.Max(a.Key).Over().PartitionBy(a.Value.EdiId).OrderByDescending(a.Value.Id).ToValue(),
+                    EdiId3 = SqlExt.Sum(a.Key).ToValue(),
+                    EdiId4 = a.Sum(a.Key)
+                });
+
+            var sqlextIsNull = g.sqlserver.Select<EdiItem>()
+                .ToSql(a => new
+                {
+                    nvl = SqlExt.IsNull(a.EdiId, 0)
+                });
 
             var sqlextGroupConcat = g.mysql.Select<Edi, EdiItem>()
                 .InnerJoin((a, b) => b.Id == a.Id)
@@ -189,7 +421,9 @@ namespace FreeSql.Tests
                         .When(a.Id == 4, 13)
                         .When(a.Id == 5, SqlExt.Case().When(b.Id == 1, 10000).Else(999).End())
                         .End(),
-                    groupct1 = SqlExt.GroupConcat(a.Id).Distinct().OrderBy(b.EdiId).Separator("_").ToValue()
+                    groupct1 = SqlExt.GroupConcat(a.Id).Distinct().OrderBy(b.EdiId).Separator("_").ToValue(),
+                    testb1 = b == null ? 1 : 0,
+                    testb2 = b != null ? 1 : 0,
                 });
             var sqlextGroupConcatToList = g.mysql.Select<Edi, EdiItem>()
                 .InnerJoin((a, b) => b.Id == a.Id)
@@ -204,7 +438,9 @@ namespace FreeSql.Tests
                         .When(a.Id == 4, 13)
                         .When(a.Id == 5, SqlExt.Case().When(b.Id == 1, 10000).Else(999).End())
                         .End(),
-                    groupct1 = SqlExt.GroupConcat(a.Id).Distinct().OrderBy(b.EdiId).Separator("_").ToValue()
+                    groupct1 = SqlExt.GroupConcat(a.Id).Distinct().OrderBy(b.EdiId).Separator("_").ToValue(),
+                    testb1 = b == null ? 1 : 0,
+                    testb2 = b != null ? 1 : 0,
                 });
 
             var sqlextCase = g.sqlserver.Select<Edi, EdiItem>()
@@ -236,6 +472,26 @@ namespace FreeSql.Tests
                         .When(a.Id == 5, SqlExt.Case().When(b.Id == 1, 10000).Else(999).End())
                         .End(),
                     over1 = SqlExt.Rank().Over().OrderBy(a.Id).OrderByDescending(b.EdiId).ToValue(),
+                });
+
+            var sqlextCaseGroupBy1 = g.sqlserver.Select<Edi, EdiItem>()
+                .InnerJoin((a, b) => b.Id == a.Id)
+                .GroupBy((a, b) => new { aid = a.Id, bid = b.Id })
+                .ToDictionary(a => new
+                {
+                    sum = a.Sum(a.Value.Item2.EdiId),
+                    testb1 = a.Value.Item2 == null ? 1 : 0,
+                    testb2 = a.Value.Item2 != null ? 1 : 0,
+                });
+
+            var sqlextCaseGroupBy2 = g.sqlserver.Select<Edi, EdiItem>()
+                .InnerJoin((a, b) => b.Id == a.Id)
+                .GroupBy((a, b) => new { aid = a.Id, bid = b.Id })
+                .ToList(a => new
+                {
+                    a.Key, sum = a.Sum(a.Value.Item2.EdiId),
+                    testb1 = a.Value.Item2 == null ? 1 : 0,
+                    testb2 = a.Value.Item2 != null ? 1 : 0,
                 });
 
 
@@ -422,8 +678,12 @@ namespace FreeSql.Tests
                     new SendInfo{ Code = "002", Binary = Encoding.UTF8.GetBytes("我是地球人") },
                     new SendInfo{ Code = "003", Binary = Encoding.UTF8.GetBytes("我是.net")},
                     new SendInfo{ Code = "004", Binary = Encoding.UTF8.GetBytes("我是freesql") },
+                    new SendInfo{ Code = "005", Binary = Encoding.UTF8.GetBytes("我是freesql233") },
                 })
-                .NoneParameter().ExecuteAffrows();
+                .NoneParameter()
+                .BatchOptions(3, 200)
+                .BatchProgress(a => Trace.WriteLine($"{a.Current}/{a.Total}"))
+                .ExecuteAffrows();
 
             var slslsl = g.oracle.Select<SendInfo>().ToList();
 

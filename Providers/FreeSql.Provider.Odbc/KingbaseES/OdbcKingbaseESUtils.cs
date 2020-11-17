@@ -35,6 +35,7 @@ namespace FreeSql.Odbc.KingbaseES
             { typeof(ushort).FullName, a => int.Parse(string.Concat(a)) }, { typeof(ushort[]).FullName, a => getParamterArrayValue(typeof(int), a, 0) }, { typeof(ushort?[]).FullName, a => getParamterArrayValue(typeof(int?), a, null) },
             { typeof(byte).FullName, a => short.Parse(string.Concat(a)) }, { typeof(byte[]).FullName, a => getParamterArrayValue(typeof(short), a, 0) }, { typeof(byte?[]).FullName, a => getParamterArrayValue(typeof(short?), a, null) },
             { typeof(sbyte).FullName, a => short.Parse(string.Concat(a)) }, { typeof(sbyte[]).FullName, a => getParamterArrayValue(typeof(short), a, 0) }, { typeof(sbyte?[]).FullName, a => getParamterArrayValue(typeof(short?), a, null) },
+            { typeof(char).FullName, a => string.Concat(a).Replace('\0', ' ').ToCharArray().FirstOrDefault() },
         };
         static object getParamterValue(Type type, object value, int level = 0)
         {
@@ -113,7 +114,7 @@ namespace FreeSql.Odbc.KingbaseES
         public override string[] SplitTableName(string name) => GetSplitTableNames(name, '"', '"', 2);
         public override string QuoteParamterName(string name) => $"@{name.ToUpper()}";
         public override string IsNull(string sql, object value) => $"coalesce({sql}, {value})";
-        public override string StringConcat(string[] objs, Type[] types) => $"{string.Join(" || ", objs.Select((a, b) => b == 0 ? $"{a}::varchar" : a))}"; //First ::varchar
+        public override string StringConcat(string[] objs, Type[] types) => $"{string.Join(" || ", objs.Select((a, b) => b == 0 ? $"{a}::text" : a))}"; //First ::text
         public override string Mod(string left, string right, Type leftType, Type rightType) => $"{left} % {right}";
         public override string Div(string left, string right, Type leftType, Type rightType) => $"{left} / {right}";
         public override string Now => "current_timestamp";
@@ -122,7 +123,7 @@ namespace FreeSql.Odbc.KingbaseES
         public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
         public override string QuoteReadColumn(Type type, Type mapType, string columnName) => columnName;
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);
@@ -144,7 +145,7 @@ namespace FreeSql.Odbc.KingbaseES
                 {
                     var item = valueArr.GetValue(a);
                     if (a > 0) sb.Append(",");
-                    sb.Append(GetNoneParamaterSqlValue(specialParams, eleType, item));
+                    sb.Append(GetNoneParamaterSqlValue(specialParams, specialParamFlag, col, eleType, item));
                 }
                 sb.Append("]");
                 var dbinfo = _orm.CodeFirst.GetDbInfo(type);

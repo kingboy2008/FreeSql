@@ -85,22 +85,22 @@ namespace FreeSql.Tests.Odbc.SqlServer
             //SELECT a.[Id], a.[Parent_id], a.[Ddd], a.[Name] 
             //FROM [Tag] a 
             //WHERE (exists(SELECT 1 
-            //	FROM [Tag] t 
-            //	LEFT JOIN [Tag] t__Parent ON t__Parent.[Id] = t.[Parent_id] 
-            //	WHERE (t__Parent.[Id] = 10) AND (t.[Parent_id] = a.[Id]) 
-            //	limit 0,1))
+            //    FROM [Tag] t 
+            //    LEFT JOIN [Tag] t__Parent ON t__Parent.[Id] = t.[Parent_id] 
+            //    WHERE (t__Parent.[Id] = 10) AND (t.[Parent_id] = a.[Id]) 
+            //    limit 0,1))
 
             //ManyToMany
             var t2 = g.sqlserver.Select<Song>().Where(s => s.Tags.AsSelect().Any(t => t.Name == "国语")).ToSql();
             //SELECT a.[Id], a.[Create_time], a.[Is_deleted], a.[Title], a.[Url] 
             //FROM [Song] a
             //WHERE(exists(SELECT 1
-            //	FROM [Song_tag] Mt_Ms
-            //	WHERE(Mt_Ms.[Song_id] = a.[Id]) AND(exists(SELECT 1
-            //		FROM [Tag] t
-            //		WHERE(t.[Name] = '国语') AND(t.[Id] = Mt_Ms.[Tag_id])
-            //		limit 0, 1))
-            //	limit 0, 1))
+            //    FROM [Song_tag] Mt_Ms
+            //    WHERE(Mt_Ms.[Song_id] = a.[Id]) AND(exists(SELECT 1
+            //        FROM [Tag] t
+            //        WHERE(t.[Name] = '国语') AND(t.[Id] = Mt_Ms.[Tag_id])
+            //        limit 0, 1))
+            //    limit 0, 1))
         }
 
         [Fact]
@@ -749,7 +749,7 @@ namespace FreeSql.Tests.Odbc.SqlServer
                 {
                     b.Key.Title,
                     b.Key.yyyy,
-
+                    b.Key,
                     cou = b.Count(),
                     sum2 = b.Sum(b.Value.TypeGuid)
                 });
@@ -810,8 +810,8 @@ namespace FreeSql.Tests.Odbc.SqlServer
                 all = a,
                 count = (long)select.As("b").Sum(b => b.Id)
             });
-            Assert.Equal(@"SELECT a.[Id] as1, a.[Clicks] as2, a.[TypeGuid] as3, a.[Title] as4, a.[CreateTime] as5, (SELECT TOP 1 sum(b.[Id]) 
-	FROM [tb_topic22] b) as6 
+            Assert.Equal(@"SELECT a.[Id] as1, a.[Clicks] as2, a.[TypeGuid] as3, a.[Title] as4, a.[CreateTime] as5, (SELECT sum(b.[Id]) 
+    FROM [tb_topic22] b) as6 
 FROM [tb_topic22] a", subquery);
             var subqueryList = select.ToList(a => new
             {
@@ -827,8 +827,8 @@ FROM [tb_topic22] a", subquery);
                 all = a,
                 count = select.As("b").Min(b => b.Id)
             });
-            Assert.Equal(@"SELECT a.[Id] as1, a.[Clicks] as2, a.[TypeGuid] as3, a.[Title] as4, a.[CreateTime] as5, (SELECT TOP 1 min(b.[Id]) 
-	FROM [tb_topic22] b) as6 
+            Assert.Equal(@"SELECT a.[Id] as1, a.[Clicks] as2, a.[TypeGuid] as3, a.[Title] as4, a.[CreateTime] as5, (SELECT min(b.[Id]) 
+    FROM [tb_topic22] b) as6 
 FROM [tb_topic22] a", subquery);
             var subqueryList = select.ToList(a => new
             {
@@ -844,8 +844,8 @@ FROM [tb_topic22] a", subquery);
                 all = a,
                 count = select.As("b").Max(b => b.Id)
             });
-            Assert.Equal(@"SELECT a.[Id] as1, a.[Clicks] as2, a.[TypeGuid] as3, a.[Title] as4, a.[CreateTime] as5, (SELECT TOP 1 max(b.[Id]) 
-	FROM [tb_topic22] b) as6 
+            Assert.Equal(@"SELECT a.[Id] as1, a.[Clicks] as2, a.[TypeGuid] as3, a.[Title] as4, a.[CreateTime] as5, (SELECT max(b.[Id]) 
+    FROM [tb_topic22] b) as6 
 FROM [tb_topic22] a", subquery);
             var subqueryList = select.ToList(a => new
             {
@@ -861,8 +861,8 @@ FROM [tb_topic22] a", subquery);
                 all = a,
                 count = select.As("b").Avg(b => b.Id)
             });
-            Assert.Equal(@"SELECT a.[Id] as1, a.[Clicks] as2, a.[TypeGuid] as3, a.[Title] as4, a.[CreateTime] as5, (SELECT TOP 1 avg(b.[Id]) 
-	FROM [tb_topic22] b) as6 
+            Assert.Equal(@"SELECT a.[Id] as1, a.[Clicks] as2, a.[TypeGuid] as3, a.[Title] as4, a.[CreateTime] as5, (SELECT avg(b.[Id]) 
+    FROM [tb_topic22] b) as6 
 FROM [tb_topic22] a", subquery);
             var subqueryList = select.ToList(a => new
             {
@@ -877,7 +877,7 @@ FROM [tb_topic22] a", subquery);
             Assert.Equal(@"SELECT a.[Id], a.[Clicks], a.[TypeGuid], a.[Title], a.[CreateTime] 
 FROM [tb_topic22] a 
 WHERE (((cast(a.[Id] as nvarchar(100))) in (SELECT b.[Title] 
-	FROM [tb_topic22] b)))", subquery);
+    FROM [tb_topic22] b)))", subquery);
             var subqueryList = select.Where(a => select.As("b").ToList(b => b.Title).Contains(a.Id.ToString())).ToList();
         }
         [Fact]
@@ -955,12 +955,12 @@ WHERE (((cast(a.[Id] as nvarchar(100))) in (SELECT b.[Title]
 
             query = select.AsTable((_, old) => old).AsTable((_, old) => old);
             sql = query.ToSql().Replace("\r\n", "");
-            Assert.Equal("SELECT  * from (SELECT a.[Id], a.[Clicks], a.[TypeGuid], a.[Title], a.[CreateTime] FROM [tb_topic22] a) ftb UNION ALLSELECT  * from (SELECT a.[Id], a.[Clicks], a.[TypeGuid], a.[Title], a.[CreateTime] FROM [tb_topic22] a) ftb", sql);
+            Assert.Equal("SELECT  * from (SELECT a.[Id], a.[Clicks], a.[TypeGuid], a.[Title], a.[CreateTime] FROM [tb_topic22] a) ftb UNION ALL SELECT  * from (SELECT a.[Id], a.[Clicks], a.[TypeGuid], a.[Title], a.[CreateTime] FROM [tb_topic22] a) ftb", sql);
             query.ToList();
 
             query = select.AsTable((_, old) => old).AsTable((_, old) => old);
             sql = query.ToSql("count(1) as1").Replace("\r\n", "");
-            Assert.Equal("SELECT  * from (SELECT count(1) as1 FROM [tb_topic22] a) ftb UNION ALLSELECT  * from (SELECT count(1) as1 FROM [tb_topic22] a) ftb", sql);
+            Assert.Equal("SELECT  * from (SELECT count(1) as1 FROM [tb_topic22] a) ftb UNION ALL SELECT  * from (SELECT count(1) as1 FROM [tb_topic22] a) ftb", sql);
             query.Count();
 
             select.AsTable((_, old) => old).AsTable((_, old) => old).Max(a => a.Id);
@@ -1750,6 +1750,22 @@ WHERE (((cast(a.[Id] as nvarchar(100))) in (SELECT b.[Title]
             Assert.Equal("中国[100000] -> 北京[110000]", t4[1].path);
             Assert.Equal("中国[100000] -> 北京[110000] -> 北京市[110100]", t4[2].path);
             Assert.Equal("中国[100000] -> 北京[110000] -> 东城区[110101]", t4[3].path);
+
+            var select = fsql.Select<VM_District_Child>()
+                .Where(a => a.Name == "中国")
+                .AsTreeCte()
+                //.OrderBy("a.cte_level desc") //递归层级
+                ;
+            // var list = select.ToList(); //自己调试看查到的数据
+            select.ToUpdate().Set(a => a.testint, 855).ExecuteAffrows();
+            Assert.Equal(855, fsql.Select<VM_District_Child>()
+                .Where(a => a.Name == "中国")
+                .AsTreeCte().Distinct().First(a => a.testint));
+
+            Assert.Equal(4, select.ToDelete().ExecuteAffrows());
+            Assert.False(fsql.Select<VM_District_Child>()
+                .Where(a => a.Name == "中国")
+                .AsTreeCte().Any());
         }
 
         [Table(Name = "D_District")]
@@ -1763,6 +1779,8 @@ WHERE (((cast(a.[Id] as nvarchar(100))) in (SELECT b.[Title]
 
             [Column(StringLength = 6)]
             public virtual string ParentCode { get; set; }
+
+            public int testint { get; set; }
         }
         [Table(Name = "D_District", DisableSyncStructure = true)]
         public class VM_District_Child : BaseDistrict

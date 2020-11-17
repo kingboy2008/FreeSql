@@ -11,19 +11,21 @@ using System.Threading.Tasks;
 namespace FreeSql.Internal.CommonProvider
 {
 
-    public abstract partial class DeleteProvider<T1> : IDelete<T1> where T1 : class
+    public abstract partial class DeleteProvider<T1> : IDelete<T1>
     {
-        protected IFreeSql _orm;
-        protected CommonUtils _commonUtils;
-        protected CommonExpression _commonExpression;
-        protected TableInfo _table;
-        protected Func<string, string> _tableRule;
-        protected StringBuilder _where = new StringBuilder();
-        protected int _whereTimes = 0;
-        protected List<GlobalFilter.Item> _whereGlobalFilter;
-        protected List<DbParameter> _params = new List<DbParameter>();
-        protected DbTransaction _transaction;
-        protected DbConnection _connection;
+        public IFreeSql _orm;
+        public CommonUtils _commonUtils;
+        public CommonExpression _commonExpression;
+        public TableInfo _table;
+        public Func<string, string> _tableRule;
+        public StringBuilder _where = new StringBuilder();
+        public int _whereTimes = 0;
+        public List<GlobalFilter.Item> _whereGlobalFilter;
+        public List<DbParameter> _params = new List<DbParameter>();
+        public DbTransaction _transaction;
+        public DbConnection _connection;
+        public int _commandTimeout = 0;
+        public Action<StringBuilder> _interceptSql;
 
         public DeleteProvider(IFreeSql orm, CommonUtils commonUtils, CommonExpression commonExpression, object dywhere)
         {
@@ -56,6 +58,11 @@ namespace FreeSql.Internal.CommonProvider
             _connection = connection;
             return this;
         }
+        public IDelete<T1> CommandTimeout(int timeout)
+        {
+            _commandTimeout = timeout;
+            return this;
+        }
 
         public int ExecuteAffrows()
         {
@@ -68,7 +75,7 @@ namespace FreeSql.Internal.CommonProvider
             Exception exception = null;
             try
             {
-                affrows = _orm.Ado.ExecuteNonQuery(_connection, _transaction, CommandType.Text, sql, dbParms);
+                affrows = _orm.Ado.ExecuteNonQuery(_connection, _transaction, CommandType.Text, sql, _commandTimeout, dbParms);
             }
             catch (Exception ex)
             {
@@ -85,7 +92,12 @@ namespace FreeSql.Internal.CommonProvider
         }
         public abstract List<T1> ExecuteDeleted();
 
-        public IDelete<T1> Where(Expression<Func<T1, bool>> exp) => this.Where(_commonExpression.ExpressionWhereLambdaNoneForeignObject(null, _table, null, exp?.Body, null, _params));
+        public IDelete<T1> Where(Expression<Func<T1, bool>> exp) => WhereIf(true, exp);
+        public IDelete<T1> WhereIf(bool condition, Expression<Func<T1, bool>> exp)
+        {
+            if (condition == false || exp == null) return this;
+            return this.Where(_commonExpression.ExpressionWhereLambdaNoneForeignObject(null, _table, null, exp?.Body, null, _params));
+        }
         public IDelete<T1> Where(string sql, object parms = null)
         {
             if (string.IsNullOrEmpty(sql)) return this;
@@ -151,10 +163,11 @@ namespace FreeSql.Internal.CommonProvider
 
             if (_whereGlobalFilter.Any())
             {
-                var globalFilterCondi = _commonExpression.GetWhereCascadeSql(new SelectTableInfo { Table = _table }, _whereGlobalFilter.Select(a => a.Where).ToList(), false);
+                var globalFilterCondi = _commonExpression.GetWhereCascadeSql(new SelectTableInfo { Table = _table }, _whereGlobalFilter, false);
                 if (string.IsNullOrEmpty(globalFilterCondi) == false)
                     sb.Append(" AND ").Append(globalFilterCondi);
             }
+            _interceptSql?.Invoke(sb);
             return sb.ToString();
         }
     }

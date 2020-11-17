@@ -1,21 +1,25 @@
 ﻿using FreeSql;
 using FreeSql.DataAnnotations;
 using FreeSql.Internal.CommonProvider;
+using FreeSql.Internal.ObjectPool;
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Data.Common;
 using System.Drawing;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 public static partial class FreeSqlGlobalExtensions
 {
+    #region Type 对象扩展方法
     static Lazy<Dictionary<Type, bool>> _dicIsNumberType = new Lazy<Dictionary<Type, bool>>(() => new Dictionary<Type, bool>
     {
         [typeof(sbyte)] = true,
@@ -44,7 +48,7 @@ public static partial class FreeSqlGlobalExtensions
     public static bool IsIntegerType(this Type that) => that == null ? false : (_dicIsNumberType.Value.TryGetValue(that, out var tryval) ? tryval : false);
     public static bool IsNumberType(this Type that) => that == null ? false : _dicIsNumberType.Value.ContainsKey(that);
     public static bool IsNullableType(this Type that) => that.IsArray == false && that?.FullName.StartsWith("System.Nullable`1[") == true;
-    public static bool IsAnonymousType(this Type that) => that?.FullName.StartsWith("<>f__AnonymousType") == true;
+    public static bool IsAnonymousType(this Type that) => that == null ? false : (that.FullName.StartsWith("<>f__AnonymousType") || that.FullName.StartsWith("VB$AnonymousType"));
     public static bool IsArrayOrList(this Type that) => that == null ? false : (that.IsArray || typeof(IList).IsAssignableFrom(that));
     public static Type NullableTypeOrThis(this Type that) => that?.IsNullableType() == true ? that.GetGenericArguments().First() : that;
     internal static string NotNullAndConcat(this string that, params object[] args) => string.IsNullOrEmpty(that) ? null : string.Concat(new object[] { that }.Concat(args));
@@ -129,13 +133,14 @@ public static partial class FreeSqlGlobalExtensions
         if (that == null) return null;
         if (that == typeof(string)) return default(string);
         if (that == typeof(Guid)) return default(Guid);
-        if (that.IsArray) return Array.CreateInstance(that, 0);
+        if (that == typeof(byte[])) return default(byte[]);
+        if (that.IsArray) return Array.CreateInstance(that.GetElementType(), 0);
         if (that.IsInterface || that.IsAbstract) return null;
         var ctorParms = that.InternalGetTypeConstructor0OrFirst(false)?.GetParameters();
         if (ctorParms == null || ctorParms.Any() == false) return Activator.CreateInstance(that, true);
         return Activator.CreateInstance(that, ctorParms
             .Select(a => a.ParameterType.IsInterface || a.ParameterType.IsAbstract || a.ParameterType == typeof(string) || a.ParameterType.IsArray ?
-            null : 
+            null :
             Activator.CreateInstance(a.ParameterType, null)).ToArray());
     }
     internal static NewExpression InternalNewExpression(this Type that)
@@ -149,7 +154,7 @@ public static partial class FreeSqlGlobalExtensions
     {
         var ret = _dicInternalGetTypeConstructor0OrFirst.GetOrAdd(that, tp =>
             tp.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, new Type[0], null) ??
-            tp.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).FirstOrDefault());
+            tp.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).OrderBy(a => a.IsPublic ? 0 : 1).FirstOrDefault());
         if (ret == null && isThrow) throw new ArgumentException($"{that.FullName} 类型无方法访问构造函数");
         return ret;
     }
@@ -161,11 +166,16 @@ public static partial class FreeSqlGlobalExtensions
         var dict = new Dictionary<string, PropertyInfo>(StringComparer.CurrentCultureIgnoreCase);
         foreach (var prop in props)
         {
-            if (dict.ContainsKey(prop.Name)) continue;
+            if (dict.TryGetValue(prop.Name, out var existsProp))
+            {
+                if (existsProp.DeclaringType != prop) dict[prop.Name] = prop;
+                continue;
+            }
             dict.Add(prop.Name, prop);
         }
         return dict;
     });
+    #endregion
 
     /// <summary>
     /// 测量两个经纬度的距离，返回单位：米
@@ -182,6 +192,7 @@ public static partial class FreeSqlGlobalExtensions
         return 2 * Math.Asin(Math.Sqrt(Math.Pow(Math.Sin((radLat1 - radLat2) / 2), 2) + Math.Cos(radLat1) * Math.Cos(radLat2) * Math.Pow(Math.Sin((radLng1 - radLng2) / 2), 2))) * 6378137;
     }
 
+    #region Enum 对象扩展方法
     static ConcurrentDictionary<Type, FieldInfo[]> _dicGetFields = new ConcurrentDictionary<Type, FieldInfo[]>();
     public static object GetEnum<T>(this IDataReader dr, int index)
     {
@@ -194,7 +205,6 @@ public static partial class FreeSqlGlobalExtensions
         }
         return null;
     }
-
     public static string ToDescriptionOrString(this Enum item)
     {
         string name = item.ToString();
@@ -217,6 +227,7 @@ public static partial class FreeSqlGlobalExtensions
         }
         return ret;
     }
+    #endregion
 
     /// <summary>
     /// 将 IEnumable&lt;T&gt; 转成 ISelect&lt;T&gt;，以便使用 FreeSql 的查询功能。此方法用于 Lambda 表达式中，快速进行集合导航的查询。
@@ -235,54 +246,35 @@ public static partial class FreeSqlGlobalExtensions
     /// <returns></returns>
     public static ISelect<T1, T2> Select<T1, T2>(this IFreeSql freesql) where T1 : class where T2 : class =>
         freesql.Select<T1>().From<T2>((s, b) => s);
-    /// <summary>
-    /// 多表查询
-    /// </summary>
-    /// <returns></returns>
     public static ISelect<T1, T2, T3> Select<T1, T2, T3>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class =>
         freesql.Select<T1>().From<T2, T3>((s, b, c) => s);
-    /// <summary>
-    /// 多表查询
-    /// </summary>
-    /// <returns></returns>
     public static ISelect<T1, T2, T3, T4> Select<T1, T2, T3, T4>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class =>
         freesql.Select<T1>().From<T2, T3, T4>((s, b, c, d) => s);
-    /// <summary>
-    /// 多表查询
-    /// </summary>
-    /// <returns></returns>
     public static ISelect<T1, T2, T3, T4, T5> Select<T1, T2, T3, T4, T5>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class =>
         freesql.Select<T1>().From<T2, T3, T4, T5>((s, b, c, d, e) => s);
-    /// <summary>
-    /// 多表查询
-    /// </summary>
-    /// <returns></returns>
     public static ISelect<T1, T2, T3, T4, T5, T6> Select<T1, T2, T3, T4, T5, T6>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class =>
         freesql.Select<T1>().From<T2, T3, T4, T5, T6>((s, b, c, d, e, f) => s);
-    /// <summary>
-    /// 多表查询
-    /// </summary>
-    /// <returns></returns>
     public static ISelect<T1, T2, T3, T4, T5, T6, T7> Select<T1, T2, T3, T4, T5, T6, T7>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class =>
         freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7>((s, b, c, d, e, f, g) => s);
-    /// <summary>
-    /// 多表查询
-    /// </summary>
-    /// <returns></returns>
     public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8> Select<T1, T2, T3, T4, T5, T6, T7, T8>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class =>
         freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8>((s, b, c, d, e, f, g, h) => s);
-    /// <summary>
-    /// 多表查询
-    /// </summary>
-    /// <returns></returns>
     public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9> Select<T1, T2, T3, T4, T5, T6, T7, T8, T9>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class =>
         freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8, T9>((s, b, c, d, e, f, g, h, i) => s);
-    /// <summary>
-    /// 多表查询
-    /// </summary>
-    /// <returns></returns>
     public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10> Select<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class =>
         freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8, T9, T10>((s, b, c, d, e, f, g, h, i, j) => s);
+
+    public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11> Select<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class =>
+        freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>((s, b, c, d, e, f, g, h, i, j, k) => s);
+    public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12> Select<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class =>
+        freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12>((s, b, c, d, e, f, g, h, i, j, k, l) => s);
+    public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13> Select<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class where T13 : class =>
+        freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13>((s, b, c, d, e, f, g, h, i, j, k, l, m) => s);
+    public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14> Select<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class where T13 : class where T14 : class =>
+        freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14>((s, b, c, d, e, f, g, h, i, j, k, l, m, n) => s);
+    public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15> Select<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class where T13 : class where T14 : class where T15 : class =>
+        freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15>((s, b, c, d, e, f, g, h, i, j, k, l, m, n, o) => s);
+    public static ISelect<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16> Select<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16>(this IFreeSql freesql) where T1 : class where T2 : class where T3 : class where T4 : class where T5 : class where T6 : class where T7 : class where T8 : class where T9 : class where T10 : class where T11 : class where T12 : class where T13 : class where T14 : class where T15 : class where T16 : class =>
+        freesql.Select<T1>().From<T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16>((s, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) => s);
     #endregion
 
     #region IncludeMany
@@ -306,26 +298,26 @@ public static partial class FreeSqlGlobalExtensions
         {
             var tb = orm.CodeFirst.GetTableByEntity(typeof(T1));
             if (tb == null || tb.Primarys.Any() == false)
-                (orm.CodeFirst as FreeSql.Internal.CommonProvider.CodeFirstProvider)._dicSycedTryAdd(typeof(T1)); //._dicSyced.TryAdd(typeof(TReturn), true);
+                (orm.CodeFirst as CodeFirstProvider)._dicSycedTryAdd(typeof(T1)); //._dicSyced.TryAdd(typeof(TReturn), true);
         }
-        var select = orm.Select<T1>().IncludeMany(navigateSelector, then) as FreeSql.Internal.CommonProvider.Select1Provider<T1>;
+        var select = orm.Select<T1>().IncludeMany(navigateSelector, then) as Select1Provider<T1>;
         select.SetList(list);
         return list;
     }
 
 #if net40
 #else
-    async public static System.Threading.Tasks.Task<List<T1>> IncludeManyAsync<T1, TNavigate>(this List<T1> list, IFreeSql orm, Expression<Func<T1, IEnumerable<TNavigate>>> navigateSelector, Action<ISelect<TNavigate>> then = null) where T1 : class where TNavigate : class
+    async public static Task<List<T1>> IncludeManyAsync<T1, TNavigate>(this List<T1> list, IFreeSql orm, Expression<Func<T1, IEnumerable<TNavigate>>> navigateSelector, Action<ISelect<TNavigate>> then = null, CancellationToken cancellationToken = default) where T1 : class where TNavigate : class
     {
         if (list == null || list.Any() == false) return list;
         if (orm.CodeFirst.IsAutoSyncStructure)
         {
             var tb = orm.CodeFirst.GetTableByEntity(typeof(T1));
             if (tb == null || tb.Primarys.Any() == false)
-                (orm.CodeFirst as FreeSql.Internal.CommonProvider.CodeFirstProvider)._dicSycedTryAdd(typeof(T1)); //._dicSyced.TryAdd(typeof(TReturn), true);
+                (orm.CodeFirst as CodeFirstProvider)._dicSycedTryAdd(typeof(T1)); //._dicSyced.TryAdd(typeof(TReturn), true);
         }
-        var select = orm.Select<T1>().IncludeMany(navigateSelector, then) as FreeSql.Internal.CommonProvider.Select1Provider<T1>;
-        await select.SetListAsync(list);
+        var select = orm.Select<T1>().IncludeMany(navigateSelector, then) as Select1Provider<T1>;
+        await select.SetListAsync(list, cancellationToken);
         return list;
     }
 #endif
@@ -344,12 +336,12 @@ public static partial class FreeSqlGlobalExtensions
         var select = that as Select1Provider<T1>;
         var tb = select._tables[0].Table;
         var navs = tb.Properties.Select(a => tb.GetTableRef(a.Key, false))
-            .Where(a => a != null && 
+            .Where(a => a != null &&
                 a.RefType == FreeSql.Internal.Model.TableRefType.OneToMany &&
                 a.RefEntityType == tb.Type).ToArray();
 
-        if (navs.Length != 1) return select.ToList();
         var list = select.ToList();
+        if (navs.Length != 1) return list;
 
         select._trackToList = null;
         select._includeToList.Clear();
@@ -362,7 +354,7 @@ public static partial class FreeSqlGlobalExtensions
     }
 #if net40
 #else
-    async public static System.Threading.Tasks.Task<List<T1>> ToTreeListAsync<T1>(this ISelect<T1> that) where T1 : class
+    async public static Task<List<T1>> ToTreeListAsync<T1>(this ISelect<T1> that, CancellationToken cancellationToken = default) where T1 : class
     {
         var select = that as Select1Provider<T1>;
         var tb = select._tables[0].Table;
@@ -371,8 +363,8 @@ public static partial class FreeSqlGlobalExtensions
                 a.RefType == FreeSql.Internal.Model.TableRefType.OneToMany &&
                 a.RefEntityType == tb.Type).ToArray();
 
-        if (navs.Length != 1) return await select.ToListAsync();
-        var list = await select.ToListAsync();
+        var list = await select.ToListAsync(false, cancellationToken);
+        if (navs.Length != 1) return list;
 
         select._trackToList = null;
         select._includeToList.Clear();
@@ -380,17 +372,19 @@ public static partial class FreeSqlGlobalExtensions
         var navigateSelector = Expression.Lambda<Func<T1, IEnumerable<T1>>>(Expression.MakeMemberAccess(navigateSelectorParamExp, navs[0].Property), navigateSelectorParamExp);
         select.IncludeMany(navigateSelector);
         select._includeManySubListOneToManyTempValue1 = list;
-        select.SetList(list);
+        await select.SetListAsync(list, cancellationToken);
         return list.Except(list.SelectMany(a => FreeSql.Extensions.EntityUtil.EntityUtilExtensions.GetEntityValueWithPropertyName(select._orm, tb.Type, a, navs[0].Property.Name) as IEnumerable<T1>)).ToList();
     }
 #endif
     #endregion
 
     #region AsTreeCte(..) 递归查询
+    static ConcurrentDictionary<string, string> _dicMySqlVersion = new ConcurrentDictionary<string, string>();
     /// <summary>
     /// 使用递归 CTE 查询树型的所有子记录，或者所有父记录。<para></para>
-    /// 通过测试的数据库：MySql8.0、SqlServer、PostgreSQL、Oracle、Sqlite、达梦、人大金仓<para></para>
-    /// 返回隐藏字段：.ToList(a =&gt; new { item = a, level = "a.cte_level", path = "a.cte_path" })
+    /// 通过测试的数据库：MySql8.0、SqlServer、PostgreSQL、Oracle、Sqlite、Firebird、达梦、人大金仓、翰高<para></para>
+    /// 返回隐藏字段：.ToList(a =&gt; new { item = a, level = "a.cte_level", path = "a.cte_path" })<para></para>
+    /// * v2.0.0 兼容 MySql5.6 向上或向下查询，但不支持 pathSelector/pathSeparator 详细：https://github.com/dotnetcore/FreeSql/issues/536
     /// </summary>
     /// <typeparam name="T1"></typeparam>
     /// <param name="that"></param>
@@ -418,6 +412,69 @@ public static partial class FreeSqlGlobalExtensions
         var cteName = "as_tree_cte";
         if (select._orm.CodeFirst.IsSyncStructureToLower) cteName = cteName.ToLower();
         if (select._orm.CodeFirst.IsSyncStructureToUpper) cteName = cteName.ToUpper();
+
+        switch (select._orm.Ado.DataType) //MySql5.6
+        {
+            case DataType.MySql:
+            case DataType.OdbcMySql:
+                var mysqlConnectionString = select._orm.Ado?.ConnectionString ?? select._connection?.ConnectionString ?? "";
+                if (_dicMySqlVersion.TryGetValue(mysqlConnectionString, out var mysqlVersion) == false)
+                {
+                    if (select._orm.Ado?.ConnectionString != null)
+                    {
+                        using (var mysqlconn = select._orm.Ado.MasterPool.Get())
+                            mysqlVersion = mysqlconn.Value.ServerVersion;
+                    }
+                    else if (select._connection != null)
+                    {
+                        var isclosed = select._connection.State != ConnectionState.Open;
+                        if (isclosed) select._connection.Open();
+                        mysqlVersion = select._connection.ServerVersion;
+                        if (isclosed) select._connection.Close();
+                    }
+                }
+                if (int.TryParse((mysqlVersion ?? "").Split('.')[0], out var mysqlVersionFirst) && mysqlVersionFirst < 8)
+                {
+                    if (tbref.Columns.Count > 1) throw new ArgumentException($"{tb.Type.FullName} 是父子关系，但是 MySql 8.0 以下版本中不支持组合多主键");
+                    var mysql56Sql = "";
+                    if (up == false)
+                    {
+                        mysql56Sql = $@"SELECT cte_tbc.cte_level, {select.GetAllFieldExpressionTreeLevel2().Field}
+  FROM (
+    SELECT @cte_ids as cte_ids, (
+      SELECT @cte_ids := group_concat({select._commonUtils.QuoteSqlName(tbref.Columns[0].Attribute.Name)}) 
+      FROM {select._commonUtils.QuoteSqlName(tb.DbName)} 
+      WHERE find_in_set({select._commonUtils.QuoteSqlName(tbref.RefColumns[0].Attribute.Name)}, @cte_ids)
+    ) as cte_cids, @cte_level := @cte_idcte_levels + 1 as cte_level
+    FROM {select._commonUtils.QuoteSqlName(tb.DbName)}, (
+      SELECT @cte_ids := a.{select._commonUtils.QuoteSqlName(tbref.Columns[0].Attribute.Name)}, @cte_idcte_levels := 0 
+      FROM {select._commonUtils.QuoteSqlName(tb.DbName)} a
+      WHERE 1=1{select._where}
+      LIMIT 1) cte_tbb
+    WHERE @cte_ids IS NOT NULL
+  ) cte_tbc, {select._commonUtils.QuoteSqlName(tb.DbName)} a
+  WHERE find_in_set(a.{select._commonUtils.QuoteSqlName(tbref.Columns[0].Attribute.Name)}, cte_tbc.cte_ids)";
+                        select.WithSql(mysql56Sql).OrderBy("a.cte_level DESC");
+                        select._where.Clear();
+                        return select;
+                    }
+                    mysql56Sql = $@"SELECT cte_tbc.cte_level, {select.GetAllFieldExpressionTreeLevel2().Field}
+FROM (
+    SELECT @cte_pid as cte_id, (SELECT @cte_pid := {select._commonUtils.QuoteSqlName(tbref.RefColumns[0].Attribute.Name)} FROM {select._commonUtils.QuoteSqlName(tb.DbName)} WHERE {select._commonUtils.QuoteSqlName(tbref.Columns[0].Attribute.Name)} = cte_id) as cte_pid, @cte_level := @cte_level + 1 as cte_level
+    FROM {select._commonUtils.QuoteSqlName(tb.DbName)}, (
+      SELECT @cte_pid := a.{select._commonUtils.QuoteSqlName(tbref.Columns[0].Attribute.Name)}, @cte_level := 0 
+      FROM {select._commonUtils.QuoteSqlName(tb.DbName)} a
+      WHERE 1=1{select._where}
+      LIMIT 1) cte_tbb
+) cte_tbc
+JOIN {select._commonUtils.QuoteSqlName(tb.DbName)} a ON cte_tbc.cte_id = a.{select._commonUtils.QuoteSqlName(tbref.Columns[0].Attribute.Name)}";
+                    select.WithSql(mysql56Sql).OrderBy("a.cte_level");
+                    select._where.Clear();
+                    return select;
+                }
+                break;
+        }
+
         var sql1ctePath = "";
         if (pathSelector != null)
         {
@@ -426,10 +483,12 @@ public static partial class FreeSqlGlobalExtensions
             {
                 case DataType.PostgreSQL:
                 case DataType.OdbcPostgreSQL:
+                case DataType.KingbaseES:
                 case DataType.OdbcKingbaseES:
                 case DataType.ShenTong: //神通测试未通过
                 case DataType.SqlServer:
                 case DataType.OdbcSqlServer:
+                case DataType.Firebird:
                     sql1ctePath = select._commonExpression.ExpressionWhereLambda(select._tables, Expression.Call(typeof(Convert).GetMethod("ToString", new Type[] { typeof(string) }), pathSelector?.Body), null, null, null);
                     break;
                 default:
@@ -446,7 +505,7 @@ public static partial class FreeSqlGlobalExtensions
         var sql2InnerJoinOn = up == false ?
             string.Join(" and ", tbref.Columns.Select((a, z) => $"wct2.{select._commonUtils.QuoteSqlName(tbref.RefColumns[z].Attribute.Name)} = wct1.{select._commonUtils.QuoteSqlName(a.Attribute.Name)}")) :
             string.Join(" and ", tbref.Columns.Select((a, z) => $"wct2.{select._commonUtils.QuoteSqlName(a.Attribute.Name)} = wct1.{select._commonUtils.QuoteSqlName(tbref.RefColumns[z].Attribute.Name)}"));
-        
+
         var sql2ctePath = "";
         if (pathSelector != null)
         {
@@ -464,6 +523,8 @@ public static partial class FreeSqlGlobalExtensions
                 });
             sql2ctePath = $"{sql2ctePath} as cte_path, ";
         }
+        if (select._orm.CodeFirst.IsAutoSyncStructure)
+            (select._orm.CodeFirst as CodeFirstProvider)._dicSycedTryAdd(tb.Type, cteName); //#476
         var sql2 = select
             .AsAlias((type, old) => type == tb.Type ? old.Replace("wct2", "wct1") : old)
             .AsTable((type, old) => type == tb.Type ? cteName : old)
@@ -483,10 +544,12 @@ public static partial class FreeSqlGlobalExtensions
         {
             case DataType.PostgreSQL:
             case DataType.OdbcPostgreSQL:
+            case DataType.KingbaseES:
             case DataType.OdbcKingbaseES:
             case DataType.ShenTong: //神通测试未通过
             case DataType.MySql:
             case DataType.OdbcMySql:
+            case DataType.Firebird:
                 nsselsb.Append("RECURSIVE ");
                 break;
         }
@@ -511,4 +574,5 @@ SELECT ");
         return newSelect;
     }
     #endregion
+
 }

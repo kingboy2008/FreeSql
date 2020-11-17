@@ -14,12 +14,14 @@ namespace FreeSql
     [AttributeUsage(AttributeTargets.Method)]
     public class TransactionalAttribute : DynamicProxyAttribute, IActionFilter
     {
-        public Propagation Propagation { get; set; } = Propagation.Requierd;
+        public Propagation Propagation { get; set; } = Propagation.Required;
         public IsolationLevel IsolationLevel { get => _IsolationLevelPriv.Value; set => _IsolationLevelPriv = value; }
         IsolationLevel? _IsolationLevelPriv;
 
         [DynamicProxyFromServices]
+#pragma warning disable IDE0044 // 添加只读修饰符
         UnitOfWorkManager _uowManager;
+#pragma warning restore IDE0044 // 添加只读修饰符
         IUnitOfWork _uow;
 
         public override Task Before(DynamicProxyBeforeArguments args) => OnBefore(_uowManager);

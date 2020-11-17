@@ -1,12 +1,13 @@
 ﻿using FreeSql.Extensions.EntityUtil;
+using FreeSql.Internal.Model;
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
-using System.Linq.Expressions;
 
 namespace FreeSql
 {
@@ -40,8 +41,10 @@ namespace FreeSql
                     case DataType.OdbcSqlServer:
                     case DataType.PostgreSQL:
                     case DataType.OdbcPostgreSQL:
+                    case DataType.KingbaseES:
                     case DataType.OdbcKingbaseES:
                     case DataType.ShenTong:
+                    case DataType.Firebird: //firebird 只支持单条插入 returning
                         if (_tableIdentitys.Length == 1)
                         {
                             DbContextFlushCommand();
@@ -107,6 +110,7 @@ namespace FreeSql
                     case DataType.OdbcSqlServer:
                     case DataType.PostgreSQL:
                     case DataType.OdbcPostgreSQL:
+                    case DataType.KingbaseES:
                     case DataType.OdbcKingbaseES:
                     case DataType.ShenTong:
                         DbContextFlushCommand();
@@ -398,15 +402,17 @@ namespace FreeSql
 
             if (data?.Count > 0)
             {
-
                 if (cuig.Length == _table.Columns.Count)
                     return ups.Length == data.Count ? -998 : -997;
 
-                var updateSource = data.Select(a => a.Value).ToArray();
-                var update = this.OrmUpdate(null).SetSource(updateSource).IgnoreColumns(cuig);
-
+                var update = this.OrmUpdate(null).SetSource(data.Select(a => a.Value)).IgnoreColumns(cuig);
                 var affrows = update.ExecuteAffrows();
-                _db._entityChangeReport.AddRange(updateSource.Select(a => new DbContext.EntityChangeReport.ChangeInfo { Object = a, Type = DbContext.EntityChangeType.Update }));
+                _db._entityChangeReport.AddRange(data.Select(a => new DbContext.EntityChangeReport.ChangeInfo
+                {
+                    Object = a.Value,
+                    BeforeObject = _states.TryGetValue(a.Key, out var beforeVal) ? CreateEntityState(beforeVal.Value).Value : null,
+                    Type = DbContext.EntityChangeType.Update
+                }));
 
                 foreach (var newval in data)
                 {
@@ -446,7 +452,18 @@ namespace FreeSql
             foreach (var item in data)
             {
                 if (_dicUpdateTimes.ContainsKey(item))
+                {
+                    var itemCopy = CreateEntityState(item).Value;
                     DbContextFlushCommand();
+                    if (_table.VersionColumn != null)
+                    {
+                        var itemVersion = _db.OrmOriginal.GetEntityValueWithPropertyName(_entityType, item, _table.VersionColumn.CsName);
+                        _db.OrmOriginal.MapEntityValue(_entityType, itemCopy, item);
+                        _db.OrmOriginal.SetEntityValueWithPropertyName(_entityType, item, _table.VersionColumn.CsName, itemVersion);
+                    }
+                    else
+                        _db.OrmOriginal.MapEntityValue(_entityType, itemCopy, item);
+                }
                 _dicUpdateTimes.Add(item, 1);
 
                 var state = CreateEntityState(item);
@@ -465,7 +482,7 @@ namespace FreeSql
             if (dels.Any() == false) return 0;
             var affrows = this.OrmDelete(dels.Select(a => a.Value)).ExecuteAffrows();
             _db._entityChangeReport.AddRange(dels.Select(a => new DbContext.EntityChangeReport.ChangeInfo { Object = a.Value, Type = DbContext.EntityChangeType.Delete }));
-            return Math.Max(dels.Length, affrows);
+            return affrows; //https://github.com/dotnetcore/FreeSql/issues/373
         }
 
         /// <summary>
@@ -528,6 +545,97 @@ namespace FreeSql
                 _db.OrmOriginal.ClearEntityPrimaryValueWithIdentity(_entityType, data);
                 AddPriv(data, false);
             }
+        }
+        #endregion
+
+        #region BeginEdit
+        protected List<TEntity> _dataEditing;
+        protected ConcurrentDictionary<string, EntityState> _statesEditing = new ConcurrentDictionary<string, EntityState>();
+
+        /// <summary>
+        /// 开始编辑数据，然后调用方法 EndEdit 分析出添加、修改、删除 SQL 语句进行执行<para></para>
+        /// 场景：winform 加载表数据后，一顿添加、修改、删除操作之后，最后才点击【保存】<para></para><para></para>
+        /// 示例：https://github.com/dotnetcore/FreeSql/issues/397<para></para>
+        /// 注意：* 本方法只支持单表操作，不支持导航属性级联保存
+        /// </summary>
+        /// <param name="data"></param>
+        public void BeginEdit(List<TEntity> data)
+        {
+            if (data == null) return;
+            if (_table.Primarys.Any() == false) throw new Exception($"不可进行编辑，实体没有主键：{_db.OrmOriginal.GetEntityString(_entityType, data.First())}");
+            _statesEditing.Clear();
+            _dataEditing = data;
+            foreach (var item in data)
+            {
+                var key = _db.OrmOriginal.GetEntityKeyString(_entityType, item, false);
+                if (string.IsNullOrEmpty(key)) continue;
+
+                _statesEditing.AddOrUpdate(key, k => CreateEntityState(item), (k, ov) =>
+                {
+                    _db.OrmOriginal.MapEntityValue(_entityType, item, ov.Value);
+                    ov.Time = DateTime.Now;
+                    return ov;
+                });
+            }
+        }
+        /// <summary>
+        /// 完成编辑数据，进行保存动作<para></para>
+        /// 该方法根据 BeginEdit 传入的数据状态分析出添加、修改、删除 SQL 语句<para></para>
+        /// 注意：* 本方法只支持单表操作，不支持导航属性级联保存
+        /// </summary>
+        /// <param name="data">可选参数：手工传递最终的 data 值进行对比<para></para>默认：如果不传递，则使用 BeginEdit 传入的 data 引用进行对比</param>
+        /// <returns></returns>
+        public int EndEdit(List<TEntity> data = null)
+        {
+            if (data == null) data = _dataEditing;
+            var beforeAffrows = 0;
+            if (data == null) return 0;
+            var oldEnable = _db.Options.EnableAddOrUpdateNavigateList;
+            _db.Options.EnableAddOrUpdateNavigateList = false;
+            try
+            {
+                DbContextFlushCommand();
+                var addList = new List<TEntity>();
+                var ediList = new List<NativeTuple<TEntity, string>>();
+                foreach (var item in data)
+                {
+                    var key = _db.OrmOriginal.GetEntityKeyString(_entityType, item, false);
+                    if (_statesEditing.TryRemove(key, out var state) == false)
+                    {
+                        addList.Add(item);
+                        continue;
+                    }
+                    _states.AddOrUpdate(key, k => state, (k, ov) =>
+                    {
+                        ov.Value = state.Value;
+                        ov.Time = DateTime.Now;
+                        return ov;
+                    });
+                    var edicmp = _db.OrmOriginal.CompareEntityValueReturnColumns(_entityType, item, state.Value, false);
+                    if (edicmp.Any())
+                        ediList.Add(NativeTuple.Create(item, string.Join(",", edicmp)));
+                }
+                beforeAffrows = _db._affrows;
+                AddRange(addList);
+                UpdateRange(ediList.OrderBy(a => a.Item2).Select(a => a.Item1).ToList());
+
+                DbContextFlushCommand();
+                var delList = _statesEditing.Values.OrderBy(a => a.Time).ToArray();
+                _db._affrows += DbContextBatchRemove(delList); //为了减的少不必要的开销，此处没有直接调用 RemoveRange
+                foreach (var state in delList)
+                {
+                    _db.OrmOriginal.ClearEntityPrimaryValueWithIdentityAndGuid(_entityType, state.Value);
+                    _states.TryRemove(state.Key, out var oldstate);
+                }
+                DbContextFlushCommand();
+            }
+            finally
+            {
+                _dataEditing = null;
+                _statesEditing.Clear();
+                _db.Options.EnableAddOrUpdateNavigateList = oldEnable;
+            }
+            return _db._affrows - beforeAffrows;
         }
         #endregion
     }

@@ -5,27 +5,41 @@ using System.Data;
 using System.Data.Common;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql
 {
-    public partial interface ISelect0<TSelect, T1> where T1 : class
+    public partial interface ISelect0 { }
+
+    public partial interface ISelect0<TSelect, T1> : ISelect0
     {
 
 #if net40
 #else
-        Task<DataTable> ToDataTableAsync(string field = null);
-        Task<Dictionary<TKey, T1>> ToDictionaryAsync<TKey>(Func<T1, TKey> keySelector);
-        Task<Dictionary<TKey, TElement>> ToDictionaryAsync<TKey, TElement>(Func<T1, TKey> keySelector, Func<T1, TElement> elementSelector);
-        Task<List<T1>> ToListAsync(bool includeNestedMembers = false);
-        Task<List<TTuple>> ToListAsync<TTuple>(string field);
+        Task<DataTable> ToDataTableAsync(string field = null, CancellationToken cancellationToken = default);
+        Task<Dictionary<TKey, T1>> ToDictionaryAsync<TKey>(Func<T1, TKey> keySelector, CancellationToken cancellationToken = default);
+        Task<Dictionary<TKey, TElement>> ToDictionaryAsync<TKey, TElement>(Func<T1, TKey> keySelector, Func<T1, TElement> elementSelector, CancellationToken cancellationToken = default);
+        Task<List<T1>> ToListAsync(bool includeNestedMembers = false, CancellationToken cancellationToken = default);
+        Task<List<TTuple>> ToListAsync<TTuple>(string field, CancellationToken cancellationToken = default);
 
-        Task<T1> ToOneAsync();
-        Task<T1> FirstAsync();
+        Task<T1> ToOneAsync(CancellationToken cancellationToken = default);
+        Task<T1> FirstAsync(CancellationToken cancellationToken = default);
 
-        Task<bool> AnyAsync();
-        Task<long> CountAsync();
+        Task<bool> AnyAsync(CancellationToken cancellationToken = default);
+        Task<long> CountAsync(CancellationToken cancellationToken = default);
 #endif
+
+        /// <summary>
+        /// 控制取消本次查询<para></para>
+        /// * 不会产生额外的异常<para></para>
+        /// * 取消成功，则不执行 SQL 命令<para></para>
+        /// * 取消成功，直接返回没有记录时候的返回值<para></para>
+        /// * 取消成功，如 List&lt;T&gt; 返回 0 元素列表，不是 null，仍然是旧机制<para></para>
+        /// </summary>
+        /// <param name="cancel">返回 true，则不会执行 SQL 命令</param>
+        /// <returns></returns>
+        TSelect Cancel(Func<bool> cancel);
 
         /// <summary>
         /// 指定事务对象
@@ -39,6 +53,12 @@ namespace FreeSql
         /// <param name="connection"></param>
         /// <returns></returns>
         TSelect WithConnection(DbConnection connection);
+        /// <summary>
+        /// 命令超时设置(秒)
+        /// </summary>
+        /// <param name="timeout"></param>
+        /// <returns></returns>
+        TSelect CommandTimeout(int timeout);
 
         /// <summary>
         /// 审核或跟踪 ToList 即将返回的数据
@@ -79,7 +99,7 @@ namespace FreeSql
         /// <param name="size">数据块的大小</param>
         /// <param name="done">处理数据块</param>
         /// <param name="includeNestedMembers">false: 返回 2级 LeftJoin/InnerJoin/RightJoin 对象；true: 返回所有 LeftJoin/InnerJoin/RightJoin 的导航数据</param>
-        void ToChunk(int size, Action<List<T1>> done, bool includeNestedMembers = false);
+        void ToChunk(int size, Action<FetchCallbackArgs<List<T1>>> done, bool includeNestedMembers = false);
         /// <summary>
         /// 执行SQL查询，返回 field 指定字段的记录，并以元组或基础类型(int,string,long)接收，记录不存在时返回 Count 为 0 的列表
         /// </summary>
@@ -218,21 +238,24 @@ namespace FreeSql
         TSelect RightJoin<T2>(Expression<Func<T1, T2, bool>> exp);
 
         /// <summary>
-        /// 左联查询，使用原生sql语法，LeftJoin("type b on b.id = a.id and b.clicks > ?clicks", new { clicks = 1 })
+        /// 左联查询，使用原生sql语法，LeftJoin("type b on b.id = a.id and b.clicks > ?clicks", new { clicks = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法条件</param>
         /// <param name="parms">参数</param>
         /// <returns></returns>
         TSelect LeftJoin(string sql, object parms = null);
         /// <summary>
-        /// 联接查询，使用原生sql语法，InnerJoin("type b on b.id = a.id and b.clicks > ?clicks", new { clicks = 1 })
+        /// 联接查询，使用原生sql语法，InnerJoin("type b on b.id = a.id and b.clicks > ?clicks", new { clicks = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法条件</param>
         /// <param name="parms">参数</param>
         /// <returns></returns>
         TSelect InnerJoin(string sql, object parms = null);
         /// <summary>
-        /// 右联查询，使用原生sql语法，RightJoin("type b on b.id = a.id and b.clicks > ?clicks", new { clicks = 1 })
+        /// 右联查询，使用原生sql语法，RightJoin("type b on b.id = a.id and b.clicks > ?clicks", new { clicks = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法条件</param>
         /// <param name="parms">参数</param>
@@ -247,14 +270,16 @@ namespace FreeSql
         TSelect RawJoin(string sql);
 
         /// <summary>
-        /// 原生sql语法条件，Where("id = ?id", new { id = 1 })
+        /// 原生sql语法条件，Where("id = ?id", new { id = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法条件</param>
         /// <param name="parms">参数</param>
         /// <returns></returns>
         TSelect Where(string sql, object parms = null);
         /// <summary>
-        /// 原生sql语法条件，WhereIf(true, "id = ?id", new { id = 1 })
+        /// 原生sql语法条件，WhereIf(true, "id = ?id", new { id = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="condition">true 时生效</param>
         /// <param name="sql">sql语法条件</param>
@@ -293,14 +318,16 @@ namespace FreeSql
         TSelect ForUpdate(bool nowait = false);
 
         /// <summary>
-        /// 按原生sql语法分组，GroupBy("concat(name, ?cc)", new { cc = 1 })
+        /// 按原生sql语法分组，GroupBy("concat(name, ?cc)", new { cc = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法</param>
         /// <param name="parms">参数</param>
         /// <returns></returns>
         TSelect GroupBy(string sql, object parms = null);
         /// <summary>
-        /// 按原生sql语法聚合条件过滤，Having("count(name) = ?cc", new { cc = 1 })
+        /// 按原生sql语法聚合条件过滤，Having("count(name) = ?cc", new { cc = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法条件</param>
         /// <param name="parms">参数</param>
@@ -308,20 +335,39 @@ namespace FreeSql
         TSelect Having(string sql, object parms = null);
 
         /// <summary>
-        /// 按原生sql语法排序，OrderBy("count(name) + ?cc desc", new { cc = 1 })
+        /// 按原生sql语法排序，OrderBy("count(name) + ?cc desc", new { cc = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法</param>
         /// <param name="parms">参数</param>
         /// <returns></returns>
         TSelect OrderBy(string sql, object parms = null);
         /// <summary>
-        /// 按原生sql语法排序，OrderBy(true, "count(name) + ?cc desc", new { cc = 1 })
+        /// 按原生sql语法排序，OrderBy(true, "count(name) + ?cc desc", new { cc = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="condition">true 时生效</param>
         /// <param name="sql">sql语法</param>
         /// <param name="parms">参数</param>
         /// <returns></returns>
         TSelect OrderBy(bool condition, string sql, object parms = null);
+        /// <summary>
+        /// 按属性名字符串排序（支持导航属性）<para></para>
+        /// 属性名：Name<para></para>导航属性：Parent.Name<para></para>多表：b.Name
+        /// </summary>
+        /// <param name="property">属性名：Name<para></para>导航属性：Parent.Name<para></para>多表：b.Name</param>
+        /// <param name="isAscending">顺序 | 倒序</param>
+        /// <returns></returns>
+        TSelect OrderByPropertyName(string property, bool isAscending = true);
+        /// <summary>
+        /// 按属性名字符串排序（支持导航属性）<para></para>
+        /// 属性名：Name<para></para>导航属性：Parent.Name<para></para>多表：b.Name
+        /// </summary>
+        /// <param name="condition">true 时生效</param>
+        /// <param name="property">属性名：Name<para></para>导航属性：Parent.Name<para></para>多表：b.Name</param>
+        /// <param name="isAscending">顺序 | 倒序</param>
+        /// <returns></returns>
+        TSelect OrderByPropertyNameIf(bool condition, string property, bool isAscending = true);
 
         /// <summary>
         /// 查询向后偏移行数

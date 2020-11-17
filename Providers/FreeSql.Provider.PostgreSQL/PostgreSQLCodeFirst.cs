@@ -39,6 +39,7 @@ namespace FreeSql.PostgreSQL
                 { typeof(decimal).FullName, CsToDb.New(NpgsqlDbType.Numeric, "numeric", "numeric(10,2) NOT NULL", false, false, 0) },{ typeof(decimal?).FullName, CsToDb.New(NpgsqlDbType.Numeric, "numeric", "numeric(10,2)", false, true, null) },
 
                 { typeof(string).FullName, CsToDb.New(NpgsqlDbType.Varchar, "varchar", "varchar(255)", false, null, "") },
+                { typeof(char).FullName, CsToDb.New(NpgsqlDbType.Char, "bpchar", "bpchar(1)", false, null, '\0') },
 
                 { typeof(TimeSpan).FullName, CsToDb.New(NpgsqlDbType.Time, "time","time NOT NULL", false, false, 0) },{ typeof(TimeSpan?).FullName, CsToDb.New(NpgsqlDbType.Time, "time", "time",false, true, null) },
                 { typeof(DateTime).FullName, CsToDb.New(NpgsqlDbType.Timestamp, "timestamp", "timestamp NOT NULL", false, false, new DateTime(1970,1,1)) },{ typeof(DateTime?).FullName, CsToDb.New(NpgsqlDbType.Timestamp, "timestamp", "timestamp", false, true, null) },
@@ -70,6 +71,7 @@ namespace FreeSql.PostgreSQL
                 { typeof(NpgsqlRange<DateTime>).FullName, CsToDb.New(NpgsqlDbType.Range | NpgsqlDbType.Timestamp, "tsrange", "tsrange NOT NULL", false, false, NpgsqlRange<DateTime>.Empty) },{ typeof(NpgsqlRange<DateTime>?).FullName, CsToDb.New(NpgsqlDbType.Range | NpgsqlDbType.Timestamp, "tsrange", "tsrange", false, true, null) },
 
                 { typeof(Dictionary<string, string>).FullName, CsToDb.New(NpgsqlDbType.Hstore, "hstore", "hstore", false, null, new Dictionary<string, string>()) },
+
                 { typeof(PostgisPoint).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new PostgisPoint(0, 0)) },
                 { typeof(PostgisLineString).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new PostgisLineString(new []{new Coordinate2D(0, 0),new Coordinate2D(0, 0) })) },
                 { typeof(PostgisPolygon).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new PostgisPolygon(new []{new []{new Coordinate2D(0, 0),new Coordinate2D(0, 0) }, new []{new Coordinate2D(0, 0),new Coordinate2D(0, 0) } })) },
@@ -78,7 +80,18 @@ namespace FreeSql.PostgreSQL
                 { typeof(PostgisMultiPolygon).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new PostgisMultiPolygon(new[]{new PostgisPolygon(new []{new []{new Coordinate2D(0, 0),new Coordinate2D(0, 0) }, new []{new Coordinate2D(0, 0),new Coordinate2D(0, 0) } }),new PostgisPolygon(new []{new []{new Coordinate2D(0, 0),new Coordinate2D(0, 0) }, new []{new Coordinate2D(0, 0),new Coordinate2D(0, 0) } }) })) },
                 { typeof(PostgisGeometry).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new PostgisPoint(0, 0)) },
                 { typeof(PostgisGeometryCollection).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new PostgisGeometryCollection(new[]{new PostgisPoint(0, 0),new PostgisPoint(0, 0) })) },
-            };
+
+#if nts
+                { typeof(NetTopologySuite.Geometries.Point).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new NetTopologySuite.Geometries.Point(0, 0)) },
+                { typeof(NetTopologySuite.Geometries.LineString).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new NetTopologySuite.Geometries.LineString(new []{new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0) })) },
+                { typeof(NetTopologySuite.Geometries.Polygon).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new NetTopologySuite.Geometries.Polygon(new NetTopologySuite.Geometries.LinearRing(new []{ new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0), new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0) }))) },
+                { typeof(NetTopologySuite.Geometries.MultiPoint).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new NetTopologySuite.Geometries.MultiPoint(new []{new NetTopologySuite.Geometries.Point(0, 0),new NetTopologySuite.Geometries.Point(0, 0) })) },
+                { typeof(NetTopologySuite.Geometries.MultiLineString).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new NetTopologySuite.Geometries.MultiLineString(new[]{new NetTopologySuite.Geometries.LineString(new []{new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0) }),new NetTopologySuite.Geometries.LineString(new []{new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0) }) })) },
+                { typeof(NetTopologySuite.Geometries.MultiPolygon).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new NetTopologySuite.Geometries.MultiPolygon(new[]{new NetTopologySuite.Geometries.Polygon(new NetTopologySuite.Geometries.LinearRing(new []{ new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0), new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0) })), new NetTopologySuite.Geometries.Polygon(new NetTopologySuite.Geometries.LinearRing(new []{ new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0), new NetTopologySuite.Geometries.Coordinate(0, 0),new NetTopologySuite.Geometries.Coordinate(0, 0) })) })) },
+                { typeof(NetTopologySuite.Geometries.Geometry).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new NetTopologySuite.Geometries.Point(0, 0)) },
+                { typeof(NetTopologySuite.Geometries.GeometryCollection).FullName, CsToDb.New(NpgsqlDbType.Geometry, "geometry", "geometry", false, null, new NetTopologySuite.Geometries.GeometryCollection(new[]{new NetTopologySuite.Geometries.Point(0, 0),new NetTopologySuite.Geometries.Point(0, 0) })) },
+#endif
+        };
 
         public override DbInfoResult GetDbInfo(Type type)
         {
@@ -185,7 +198,7 @@ namespace FreeSql.PostgreSQL
                         {
                             sb.Append("CREATE ");
                             if (uk.IsUnique) sb.Append("UNIQUE ");
-                            sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(createTableName).Append("(");
+                            sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ReplaceIndexName(uk.Name, tbname[1]))).Append(" ON ").Append(createTableName).Append("(");
                             foreach (var tbcol in uk.Columns)
                             {
                                 sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -261,7 +274,7 @@ where ns.nspname = {0} and c.relname = {1}", tboldname ?? tbname);
                         sqlType = string.Concat(sqlType),
                         max_length = long.Parse(string.Concat(a[2])),
                         is_nullable = string.Concat(a[4]) == "1",
-                        is_identity = string.Concat(a[5]).StartsWith(@"nextval('") && string.Concat(a[5]).EndsWith(@"'::regclass)"),
+                        is_identity = string.Concat(a[5]).StartsWith(@"nextval('") && (string.Concat(a[5]).EndsWith(@"'::regclass)") || string.Concat(a[5]).EndsWith(@"')")), //pgsql10
                         attndims,
                         comment = string.Concat(a[7])
                     };
@@ -319,13 +332,14 @@ where ns.nspname in ({{0}}) and d.relname in ({{1}}) and a.indisprimary = 'f'", 
                     foreach (var uk in tb.Indexes)
                     {
                         if (string.IsNullOrEmpty(uk.Name) || uk.Columns.Any() == false) continue;
-                        var dsukfind1 = dsuk.Where(a => string.Compare(a[1], uk.Name, true) == 0).ToArray();
+                        var ukname = ReplaceIndexName(uk.Name, tbname[1]);
+                        var dsukfind1 = dsuk.Where(a => string.Compare(a[1], ukname, true) == 0).ToArray();
                         if (dsukfind1.Any() == false || dsukfind1.Length != uk.Columns.Length || dsukfind1.Where(a => uk.Columns.Where(b => (a[3] == "1") == uk.IsUnique && string.Compare(b.Column.Attribute.Name, a[0], true) == 0 && ((a[2] == "1") == b.IsDesc || is96 == false)).Any()).Count() != uk.Columns.Length)
                         {
-                            if (dsukfind1.Any()) sbalter.Append("DROP INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(";\r\n");
+                            if (dsukfind1.Any()) sbalter.Append("DROP INDEX ").Append(_commonUtils.QuoteSqlName(ukname)).Append(";\r\n");
                             sbalter.Append("CREATE ");
                             if (uk.IsUnique) sbalter.Append("UNIQUE ");
-                            sbalter.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append("(");
+                            sbalter.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ukname)).Append(" ON ").Append(_commonUtils.QuoteSqlName($"{tbname[0]}.{tbname[1]}")).Append("(");
                             foreach (var tbcol in uk.Columns)
                             {
                                 sbalter.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -415,7 +429,7 @@ where pg_namespace.nspname={0} and pg_class.relname={1} and pg_constraint.contyp
                 {
                     sb.Append("CREATE ");
                     if (uk.IsUnique) sb.Append("UNIQUE ");
-                    sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(tablename).Append("(");
+                    sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ReplaceIndexName(uk.Name, tbname[1]))).Append(" ON ").Append(tablename).Append("(");
                     foreach (var tbcol in uk.Columns)
                     {
                         sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));

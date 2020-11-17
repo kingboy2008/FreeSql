@@ -41,9 +41,11 @@ namespace FreeSql
                     case DataType.OdbcSqlServer:
                     case DataType.PostgreSQL:
                     case DataType.OdbcPostgreSQL:
+                    case DataType.KingbaseES:
                     case DataType.OdbcKingbaseES:
                     case DataType.ShenTong:
-                        if (_tableIdentitys.Length == 1 && _table.Primarys.Length == 1)
+                    case DataType.Firebird: //firebird 只支持单条插入 returning
+                        if (_tableIdentitys.Length == 1)
                         {
                             await DbContextFlushCommandAsync();
                             var idtval = await this.OrmInsert(data).ExecuteIdentityAsync();
@@ -67,7 +69,7 @@ namespace FreeSql
                         }
                         return;
                     default:
-                        if (_tableIdentitys.Length == 1 && _table.Primarys.Length == 1)
+                        if (_tableIdentitys.Length == 1)
                         {
                             await DbContextFlushCommandAsync();
                             var idtval = await this.OrmInsert(data).ExecuteIdentityAsync();
@@ -104,6 +106,7 @@ namespace FreeSql
                     case DataType.OdbcSqlServer:
                     case DataType.PostgreSQL:
                     case DataType.OdbcPostgreSQL:
+                    case DataType.KingbaseES:
                     case DataType.OdbcKingbaseES:
                     case DataType.ShenTong:
                         await DbContextFlushCommandAsync();
@@ -363,15 +366,16 @@ namespace FreeSql
 
             if (data?.Count > 0)
             {
-
                 if (cuig.Length == _table.Columns.Count)
                     return ups.Length == data.Count ? -998 : -997;
 
-                var updateSource = data.Select(a => a.Value).ToArray();
-                var update = this.OrmUpdate(null).SetSource(updateSource).IgnoreColumns(cuig);
-
+                var update = this.OrmUpdate(null).SetSource(data.Select(a => a.Value)).IgnoreColumns(cuig);
                 var affrows = await update.ExecuteAffrowsAsync();
-                _db._entityChangeReport.AddRange(updateSource.Select(a => new DbContext.EntityChangeReport.ChangeInfo { Object = a, Type = DbContext.EntityChangeType.Update }));
+                _db._entityChangeReport.AddRange(data.Select(a => new DbContext.EntityChangeReport.ChangeInfo { 
+                    Object = a.Value, 
+                    BeforeObject = _states.TryGetValue(a.Key, out var beforeVal) ? CreateEntityState(beforeVal.Value).Value : null, 
+                    Type = DbContext.EntityChangeType.Update 
+                }));
 
                 foreach (var newval in data)
                 {
@@ -405,7 +409,18 @@ namespace FreeSql
             foreach (var item in data)
             {
                 if (_dicUpdateTimes.ContainsKey(item))
+                {
+                    var itemCopy = CreateEntityState(item).Value;
                     await DbContextFlushCommandAsync();
+                    if (_table.VersionColumn != null)
+                    {
+                        var itemVersion = _db.OrmOriginal.GetEntityValueWithPropertyName(_entityType, item, _table.VersionColumn.CsName);
+                        _db.OrmOriginal.MapEntityValue(_entityType, itemCopy, item);
+                        _db.OrmOriginal.SetEntityValueWithPropertyName(_entityType, item, _table.VersionColumn.CsName, itemVersion);
+                    }
+                    else
+                        _db.OrmOriginal.MapEntityValue(_entityType, itemCopy, item);
+                }
                 _dicUpdateTimes.Add(item, 1);
 
                 var state = CreateEntityState(item);
@@ -424,7 +439,7 @@ namespace FreeSql
             if (dels.Any() == false) return 0;
             var affrows = await this.OrmDelete(dels.Select(a => a.Value)).ExecuteAffrowsAsync();
             _db._entityChangeReport.AddRange(dels.Select(a => new DbContext.EntityChangeReport.ChangeInfo { Object = a.Value, Type = DbContext.EntityChangeType.Delete }));
-            return Math.Max(dels.Length, affrows);
+            return affrows;
         }
         /// <summary>
         /// 根据 lambda 条件删除数据

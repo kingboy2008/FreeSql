@@ -85,11 +85,12 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
         {
             var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<AddUniquesInfo>();
             g.pgsql.CodeFirst.SyncStructure<AddUniquesInfo>();
+            g.pgsql.CodeFirst.SyncStructure(typeof(AddUniquesInfo), "AddUniquesInfo1");
         }
         [Table(Name = "AddUniquesInfo", OldName = "AddUniquesInfo2")]
-        [Index("uk_phone", "phone", true)]
-        [Index("uk_group_index", "group,index", true)]
-        [Index("uk_group_index22", "group, index22", true)]
+        [Index("{tablename}_uk_phone", "phone", true)]
+        [Index("{tablename}_uk_group_index", "group,index", true)]
+        [Index("{tablename}_uk_group_index22", "group, index22", true)]
         class AddUniquesInfo
         {
             public Guid id { get; set; }
@@ -104,8 +105,8 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
         public void AddField()
         {
             var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<TopicAddField>();
+            Assert.True(string.IsNullOrEmpty(sql)); //测试运行两次后
             g.pgsql.Select<TopicAddField>();
-
             var id = g.pgsql.Insert<TopicAddField>().AppendData(new TopicAddField { }).ExecuteIdentity();
         }
 
@@ -183,6 +184,7 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
                 testFieldShort = short.MaxValue,
                 testFieldShortNullable = short.MinValue,
                 testFieldString = "我是中国人string'\\?!@#$%^&*()_+{}}{~?><<>",
+                testFieldChar = 'X',
                 testFieldTimeSpan = TimeSpan.FromDays(1),
                 testFieldTimeSpanNullable = TimeSpan.FromSeconds(90),
                 testFieldUInt = uint.MaxValue,
@@ -201,12 +203,15 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
             var item3 = insert.AppendData(item2).ExecuteInserted().First();
             var newitem2 = select.Where(a => a.Id == item3.Id).ToOne();
             Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             item3 = insert.NoneParameter().AppendData(item2).ExecuteInserted().First();
             newitem2 = select.Where(a => a.Id == item3.Id).ToOne();
             Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             var items = select.ToList();
+            var itemstb = select.ToDataTable();
         }
 
         [Table(Name = "tb_alltype")]
@@ -231,6 +236,7 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
             public DateTime testFieldDateTime { get; set; }
             public byte[] testFieldBytes { get; set; }
             public string testFieldString { get; set; }
+            public char testFieldChar { get; set; }
             public Guid testFieldGuid { get; set; }
 
             public bool? testFieldBoolNullable { get; set; }

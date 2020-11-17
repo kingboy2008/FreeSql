@@ -119,11 +119,11 @@ namespace FreeSql
             return _db.SaveChanges();
         }
 
-        public void Attach(TEntity data) => _db.Attach(data);
-        public void Attach(IEnumerable<TEntity> data) => _db.AttachRange(data);
+        public void Attach(TEntity data) => _dbset.Attach(data);
+        public void Attach(IEnumerable<TEntity> data) => _dbset.AttachRange(data);
         public IBaseRepository<TEntity> AttachOnlyPrimary(TEntity data)
         {
-            _db.AttachOnlyPrimary(data);
+            _dbset.AttachOnlyPrimary(data);
             return this;
         }
         public void FlushState() => _dbset.FlushState();
@@ -139,6 +139,35 @@ namespace FreeSql
         {
             _dbset.SaveMany(entity, propertyName);
             _db.SaveChanges();
+        }
+
+        public void BeginEdit(List<TEntity> data) => _dbset.BeginEdit(data);
+        public int EndEdit(List<TEntity> data = null)
+        {
+            _db.FlushCommand();
+            if (UnitOfWork?.GetOrBeginTransaction(true) == null && _db.OrmOriginal.Ado.TransactionCurrentThread == null)
+            {
+                int affrows = 0;
+                IUnitOfWork olduow = UnitOfWork;
+                UnitOfWork = new UnitOfWork(_db.OrmOriginal);
+                try
+                {
+                    affrows = _dbset.EndEdit(data);
+                    UnitOfWork.Commit();
+                }
+                catch
+                {
+                    UnitOfWork.Rollback();
+                    throw;
+                }
+                finally
+                {
+                    UnitOfWork.Dispose();
+                    UnitOfWork = olduow;
+                }
+                return affrows;
+            }
+            return _dbset.EndEdit(data);
         }
     }
 

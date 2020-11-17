@@ -134,73 +134,73 @@ namespace FreeSql.Tests.Odbc
         {
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "article_id", IsIdentity = true, IsPrimary = true)]
             public int ArticleId { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "article_title")]
             public string ArticleTitle { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "category_id")]
             public int CategoryId { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "channel_id")]
             public int ChannelId { get; set; }
 
             /// <summary>
             /// 类型
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "type_id")]
             public int TypeId { get; set; }
 
             /// <summary>
             /// 内容简介
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "summary")]
             public string Summary { get; set; }
 
             /// <summary>
             /// 缩略图
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "thumbnail")]
             public string Thumbnail { get; set; }
 
             /// <summary>
             /// 点击量
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "hits")]
             public int Hits { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "is_display")]
             public int IsDisplay { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "status")]
             public int Status { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "create_time")]
             public int CreateTime { get; set; }
 
             /// <summary>
             /// 
-            /// </summary>		
+            /// </summary>        
             [Column(Name = "release_time")]
             public int ReleaseTime { get; set; }
 
@@ -379,6 +379,11 @@ WHERE ROWNUM < 11";
             var dkkdksdjgj22 = g.mysql.Select<TaskBuild>().Where(a => a.OptionsEntity04 > DateTime.Now.Subtract(dt1970).TotalSeconds).ToSql();
 
 
+            var xxxhzytuple = g.sqlserver.Select<Templates, TaskBuild>()
+                .Where(a => a.t1.Code == "xxx" && a.t2.OptionsEntity03 == true)
+                .ToSql();
+
+
             var xxxkdkd = g.oracle.Select<Templates, TaskBuild>()
                 .InnerJoin((a,b) => true)
                 .Where((a,b) => (DateTime.Now - a.EditTime).TotalMinutes > 100)
@@ -475,14 +480,14 @@ WHERE ROWNUM < 11";
 
             //var testaddlist = new List<NewsArticle>();
             //for(var a = 0; a < 133905; a++) {
-            //	testaddlist.Add(new NewsArticle {
-            //		ArticleTitle = "testaddlist_topic" + a,
-            //		Hits = a,
-            //	});
+            //    testaddlist.Add(new NewsArticle {
+            //        ArticleTitle = "testaddlist_topic" + a,
+            //        Hits = a,
+            //    });
             //}
             //g.mysql.Insert<NewsArticle>(testaddlist)
-            //	//.NoneParameter()
-            //	.ExecuteAffrows();
+            //    //.NoneParameter()
+            //    .ExecuteAffrows();
 
 
             g.mysql.Aop.ParseExpression += (s, e) =>
@@ -872,9 +877,9 @@ WHERE ROWNUM < 11";
             //);
 
             //var sql4 = select.From<TestTypeInfo, TestTypeParentInfo>((a, b, c) => new SelectFrom()
-            //	.InnerJoin(a.TypeGuid == b.Guid)
-            //	.LeftJoin(c.Id == b.ParentId)
-            //	.Where(b.Name == "xxx"))
+            //    .InnerJoin(a.TypeGuid == b.Guid)
+            //    .LeftJoin(c.Id == b.ParentId)
+            //    .Where(b.Name == "xxx"))
             //.Where(a => a.Id == 1).ToSql();
 
             var sql4 = select.From<TestTypeInfo, TestTypeParentInfo>((s, b, c) => s

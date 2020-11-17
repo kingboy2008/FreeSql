@@ -43,8 +43,10 @@ namespace FreeSql.Sqlite
 
             if (param is bool || param is bool?)
                 return (bool)param ? 1 : 0;
-            else if (param is string || param is char)
+            else if (param is string)
                 return string.Concat("'", param.ToString().Replace("'", "''"), "'");
+            else if (param is char)
+                return string.Concat("'", param.ToString().Replace("'", "''").Replace('\0', ' '), "'");
             else if (param is Enum)
                 return ((Enum)param).ToInt64();
             else if (decimal.TryParse(string.Concat(param), out var trydec))
@@ -62,7 +64,7 @@ namespace FreeSql.Sqlite
         }
 
         DbConnection _CreateCommandConnection;
-        protected override DbCommand CreateCommand()
+        public override DbCommand CreateCommand()
         {
             if (_CreateCommandConnection != null)
             {
@@ -80,6 +82,6 @@ namespace FreeSql.Sqlite
             else pool.Return(conn);
         }
 
-        protected override DbParameter[] GetDbParamtersByObject(string sql, object obj) => _util.GetDbParamtersByObject(sql, obj);
+        public override DbParameter[] GetDbParamtersByObject(string sql, object obj) => _util.GetDbParamtersByObject(sql, obj);
     }
 }

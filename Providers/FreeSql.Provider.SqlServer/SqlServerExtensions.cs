@@ -3,7 +3,12 @@ using FreeSql.Internal.Model;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
+#if microsoft
+using Microsoft.Data.SqlClient;
+#else
 using System.Data.SqlClient;
+#endif
 using System.Threading.Tasks;
 
 public static partial class FreeSqlSqlServerGlobalExtensions
@@ -26,7 +31,7 @@ public static partial class FreeSqlSqlServerGlobalExtensions
     /// <param name="lockType"></param>
     /// <param name="rule">多表查询时的锁规则</param>
     /// <returns></returns>
-    public static ISelect<T> WithLock<T>(this ISelect<T> that, SqlServerLock lockType = SqlServerLock.NoLock, Dictionary<Type, bool> rule = null) where T : class 
+    public static ISelect<T> WithLock<T>(this ISelect<T> that, SqlServerLock lockType = SqlServerLock.NoLock, Dictionary<Type, bool> rule = null)
         => rule == null ? 
         that.AsAlias((type, old) => $"{old} With({lockType.ToString()})") :
         that.AsAlias((type, old) => rule.TryGetValue(type, out var trybool) && trybool ? $"{old} With({lockType.ToString()})" : old);
@@ -38,11 +43,11 @@ public static partial class FreeSqlSqlServerGlobalExtensions
     /// <param name="options"></param>
     public static IFreeSql SetGlobalSelectWithLock(this IFreeSql that, SqlServerLock lockType, Dictionary<Type, bool> rule)
     {
-        var value = NaviteTuple.Create(lockType, rule);
+        var value = NativeTuple.Create(lockType, rule);
         _dicSetGlobalSelectWithLock.AddOrUpdate(that.Ado.Identifier, value, (_, __) => value);
         return that;
     }
-    internal static ConcurrentDictionary<Guid, NaviteTuple<SqlServerLock, Dictionary<Type, bool>>> _dicSetGlobalSelectWithLock = new ConcurrentDictionary<Guid, NaviteTuple<SqlServerLock, Dictionary<Type, bool>>>();
+    internal static ConcurrentDictionary<Guid, NativeTuple<SqlServerLock, Dictionary<Type, bool>>> _dicSetGlobalSelectWithLock = new ConcurrentDictionary<Guid, NativeTuple<SqlServerLock, Dictionary<Type, bool>>>();
 
     #region ExecuteSqlBulkCopy
     /// <summary>
@@ -78,6 +83,8 @@ public static partial class FreeSqlSqlServerGlobalExtensions
             if (batchSize.HasValue) bulkCopy.BatchSize = batchSize.Value;
             if (bulkCopyTimeout.HasValue) bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
             bulkCopy.DestinationTableName = dt.TableName;
+            for (int i = 0; i < dt.Columns.Count; i++)
+                bulkCopy.ColumnMappings.Add(dt.Columns[i].ColumnName, dt.Columns[i].ColumnName);
             bulkCopy.WriteToServer(dt);
         };
 
@@ -140,7 +147,7 @@ public static partial class FreeSqlSqlServerGlobalExtensions
     }
 #if net40
 #else
-    async public static Task ExecuteSqlBulkCopyAsync<T>(this IInsert<T> that, SqlBulkCopyOptions copyOptions = SqlBulkCopyOptions.Default, int? batchSize = null, int? bulkCopyTimeout = null) where T : class
+    async public static Task ExecuteSqlBulkCopyAsync<T>(this IInsert<T> that, SqlBulkCopyOptions copyOptions = SqlBulkCopyOptions.Default, int? batchSize = null, int? bulkCopyTimeout = null, CancellationToken cancellationToken = default) where T : class
     {
         var insert = that as FreeSql.SqlServer.Curd.SqlServerInsert<T>;
         if (insert == null) throw new Exception("ExecuteSqlBulkCopyAsync 是 FreeSql.Provider.SqlServer 特有的功能");
@@ -153,7 +160,9 @@ public static partial class FreeSqlSqlServerGlobalExtensions
             if (batchSize.HasValue) bulkCopy.BatchSize = batchSize.Value;
             if (bulkCopyTimeout.HasValue) bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
             bulkCopy.DestinationTableName = dt.TableName;
-            return bulkCopy.WriteToServerAsync(dt);
+            for (int i = 0; i < dt.Columns.Count; i++)
+                bulkCopy.ColumnMappings.Add(dt.Columns[i].ColumnName, dt.Columns[i].ColumnName);
+            return bulkCopy.WriteToServerAsync(dt, cancellationToken);
         };
 
         try
@@ -186,7 +195,7 @@ public static partial class FreeSqlSqlServerGlobalExtensions
                 if (conn.State != System.Data.ConnectionState.Open)
                 {
                     isNotOpen = true;
-                    await conn.OpenAsync();
+                    await conn.OpenAsync(cancellationToken);
                 }
                 try
                 {

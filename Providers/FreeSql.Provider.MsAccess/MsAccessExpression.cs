@@ -19,6 +19,10 @@ namespace FreeSql.MsAccess
             Func<Expression, string> getExp = exparg => ExpressionLambdaToSql(exparg, tsc);
             switch (exp.NodeType)
             {
+                //case ExpressionType.ArrayLength:
+                //    var arrOper = (exp as UnaryExpression)?.Operand;
+                //    if (arrOper.Type == typeof(byte[])) return $"lenb({getExp(arrOper)})";  #505
+                //    break;
                 case ExpressionType.Convert:
                     var operandExp = (exp as UnaryExpression)?.Operand;
                     var gentype = exp.Type.NullableTypeOrThis();
@@ -70,6 +74,16 @@ namespace FreeSql.MsAccess
                         objExp = callExp.Arguments.FirstOrDefault();
                         objType = objExp?.Type;
                         argIndex++;
+
+                        if (objType == typeof(string))
+                        {
+                            switch (callExp.Method.Name)
+                            {
+                                case "First":
+                                case "FirstOrDefault":
+                                    return $"left({getExp(callExp.Arguments[0])}, 1)";
+                            }
+                        }
                     }
                     if (objType == null) objType = callExp.Method.DeclaringType;
                     if (objType != null || objType.IsArrayOrList())
@@ -222,7 +236,16 @@ namespace FreeSql.MsAccess
                         return _common.StringConcat(exp.Arguments.Select(a => getExp(a)).ToArray(), exp.Arguments.Select(a => a.Type).ToArray());
                     case "Format":
                         if (exp.Arguments[0].NodeType != ExpressionType.Constant) throw new Exception($"未实现函数表达式 {exp} 解析，参数 {exp.Arguments[0]} 必须为常量");
-                        var expArgs = exp.Arguments.Where((a, z) => z > 0).Select(a => $"'+{(((a as UnaryExpression)?.Operand.Type ?? a.Type) == typeof(string) ? $"({ExpressionLambdaToSql(a, tsc)})" : $"cstr({ExpressionLambdaToSql(a, tsc)})")}+'").ToArray();
+                        var expArgsHack = exp.Arguments.Count == 2 && exp.Arguments[1].NodeType == ExpressionType.NewArrayInit ?
+                            (exp.Arguments[1] as NewArrayExpression).Expressions : exp.Arguments.Where((a, z) => z > 0);
+                        //3个 {} 时，Arguments 解析出来是分开的
+                        //4个 {} 时，Arguments[1] 只能解析这个出来，然后里面是 NewArray []
+                        var expArgs = expArgsHack.Select(a =>
+                        {
+                            var asql = ((a as UnaryExpression)?.Operand.Type ?? a.Type) == typeof(string) ? $"{ExpressionLambdaToSql(a, tsc)}" : $"cstr({ExpressionLambdaToSql(a, tsc)})";
+                            return $"'+{_common.IsNull(asql, "''")}+'";
+                        }
+                        ).ToArray();
                         return string.Format(ExpressionLambdaToSql(exp.Arguments[0], tsc), expArgs);
                 }
             }

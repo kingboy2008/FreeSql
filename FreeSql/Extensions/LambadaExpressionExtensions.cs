@@ -233,6 +233,31 @@ namespace System.Linq.Expressions
             test.Visit(exp);
             return test.Result;
         }
+
+        static ConcurrentDictionary<Type, ConcurrentDictionary<string, MethodInfo>> _dicTypeMethod = new ConcurrentDictionary<Type, ConcurrentDictionary<string, MethodInfo>>();
+        public static bool IsStringJoin(this MethodCallExpression exp, out Expression tolistObjectExpOut, out MethodInfo toListMethodOut, out LambdaExpression toListArgs0Out)
+        {
+            if (exp.Arguments.Count == 2 &&
+                exp.Arguments[1].NodeType == ExpressionType.Call &&
+                exp.Arguments[1].Type.FullName.StartsWith("System.Collections.Generic.List`1") &&
+                exp.Arguments[1] is MethodCallExpression toListMethod &&
+                toListMethod.Method.Name == "ToList" &&
+                toListMethod.Arguments.Count == 1 &&
+                toListMethod.Arguments[0] is UnaryExpression joinExpArgs1Args0Tmp &&
+                joinExpArgs1Args0Tmp.Operand is LambdaExpression toListArgs0)
+            {
+                tolistObjectExpOut = toListMethod.Object;
+                toListMethodOut = toListMethod.Type.GetGenericArguments().FirstOrDefault() == typeof(string) ?
+                    toListMethod.Method :
+                    toListMethod.Method.GetGenericMethodDefinition().MakeGenericMethod(typeof(string));
+                toListArgs0Out = toListArgs0;
+                return true;
+            }
+            tolistObjectExpOut = null;
+            toListMethodOut = null;
+            toListArgs0Out = null;
+            return false;
+        }
     }
 
     internal class NewExpressionVisitor : ExpressionVisitor

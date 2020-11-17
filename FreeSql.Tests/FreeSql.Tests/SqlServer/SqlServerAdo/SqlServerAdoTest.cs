@@ -1,6 +1,9 @@
 using FreeSql.DataAnnotations;
 using FreeSql.Tests.DataContext.SqlServer;
+using Microsoft.Data.SqlClient;
+using NetTaste;
 using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace FreeSql.Tests.SqlServer
@@ -28,6 +31,11 @@ namespace FreeSql.Tests.SqlServer
         }
 
         [Fact]
+        public void ExecuteTest()
+        {
+            Assert.True(g.sqlserver.Ado.ExecuteConnectTest());
+        }
+        [Fact]
         public void ExecuteReader()
         {
 
@@ -40,7 +48,14 @@ namespace FreeSql.Tests.SqlServer
         [Fact]
         public void ExecuteNonQuery()
         {
-
+            var ps = new[]
+            {
+                new SqlParameter("@TableName", "tb1"),
+                new SqlParameter("@FInterID", System.Data.SqlDbType.Int)
+            };
+            ps[1].Direction = System.Data.ParameterDirection.Output;
+            g.sqlserver.Ado.ExecuteNonQuery(System.Data.CommandType.StoredProcedure, "dbo.GetICMaxNum", ps);
+            Assert.Equal(100, ps[1].Value);
         }
         [Fact]
         public void ExecuteScalar()
@@ -53,20 +68,20 @@ namespace FreeSql.Tests.SqlServer
         {
 
             //var tt1 = g.sqlserver.Select<xxx>()
-            //	.LeftJoin(a => a.ParentId == a.Parent.Id)
-            //	.ToSql(a => new { a.Id, a.Title });
+            //    .LeftJoin(a => a.ParentId == a.Parent.Id)
+            //    .ToSql(a => new { a.Id, a.Title });
 
             //var tt2result = g.sqlserver.Select<xxx>()
-            //	.LeftJoin(a => a.ParentId == a.Parent.Id)
-            //	.ToList(a => new { a.Id, a.Title });
+            //    .LeftJoin(a => a.ParentId == a.Parent.Id)
+            //    .ToList(a => new { a.Id, a.Title });
 
             //var tt = g.sqlserver.Select<xxx>()
-            //	.LeftJoin<xxx>((a, b) => b.Id == a.Id)
-            //	.ToSql(a => new { a.Id, a.Title });
+            //    .LeftJoin<xxx>((a, b) => b.Id == a.Id)
+            //    .ToSql(a => new { a.Id, a.Title });
 
             //var ttresult = g.sqlserver.Select<xxx>()
-            //	.LeftJoin<xxx>((a, b) => b.Id == a.Id)
-            //	.ToList(a => new { a.Id, a.Title });
+            //    .LeftJoin<xxx>((a, b) => b.Id == a.Id)
+            //    .ToList(a => new { a.Id, a.Title });
 
             var tnsql1 = g.sqlserver.Select<xxx>().Where(a => a.Id > 0).Where(b => b.Title != null).Page(1, 3).ToSql(a => a.Id);
             var tnsql2 = g.sqlserver.Select<xxx>().Where(a => a.Id > 0).Where(b => b.Title != null).Page(2, 3).ToSql(a => a.Id);
@@ -78,8 +93,8 @@ namespace FreeSql.Tests.SqlServer
 
             var t4 = g.sqlserver.Ado.Query<(int, int, string, string DateTime)>("select * from xxx");
 
-            var t5 = g.sqlserver.Ado.Query<dynamic>(System.Data.CommandType.Text, "select * from xxx where Id = @Id",
-                new System.Data.SqlClient.SqlParameter("Id", 1));
+            var t5 = g.sqlserver.Ado.Query<dynamic>("select * from xxx where Id = @Id",
+                new Dictionary<string, object> { ["id"] = 1 });
         }
 
         [Fact]

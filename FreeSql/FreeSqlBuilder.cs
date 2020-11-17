@@ -72,9 +72,10 @@ namespace FreeSql
             return this;
         }
         /// <summary>
-        /// 【开发环境必备】自动同步实体结构到数据库，程序运行中检查实体表是否存在，然后创建或修改
+        /// 【开发环境必备】自动同步实体结构到数据库，程序运行中检查实体表是否存在，然后创建或修改<para></para>
+        /// 注意：生产环境中谨慎使用
         /// </summary>
-        /// <param name="value">true:运行时检查自动同步结构, false:不同步结构</param>
+        /// <param name="value">true:运行时检查自动同步结构, false:不同步结构(默认)</param>
         /// <returns></returns>
         public FreeSqlBuilder UseAutoSyncStructure(bool value)
         {
@@ -177,12 +178,13 @@ namespace FreeSql
                 switch (_dataType)
                 {
                     case DataType.MySql:
-                        type = Type.GetType("FreeSql.MySql.MySqlProvider`1,FreeSql.Provider.MySql")?.MakeGenericType(typeof(TMark));
-                        if (type == null) type = Type.GetType("FreeSql.MySql.MySqlProvider`1,FreeSql.Provider.MySqlConnector")?.MakeGenericType(typeof(TMark));
+                        type = Type.GetType("FreeSql.MySql.MySqlProvider`1,FreeSql.Provider.MySql")?.MakeGenericType(typeof(TMark)); //MySql.Data.dll
+                        if (type == null) type = Type.GetType("FreeSql.MySql.MySqlProvider`1,FreeSql.Provider.MySqlConnector")?.MakeGenericType(typeof(TMark)); //MySqlConnector.dll
                         if (type == null) throwNotFind("FreeSql.Provider.MySql.dll", "FreeSql.MySql.MySqlProvider<>");
                         break;
                     case DataType.SqlServer:
-                        type = Type.GetType("FreeSql.SqlServer.SqlServerProvider`1,FreeSql.Provider.SqlServer")?.MakeGenericType(typeof(TMark));
+                        type = Type.GetType("FreeSql.SqlServer.SqlServerProvider`1,FreeSql.Provider.SqlServer")?.MakeGenericType(typeof(TMark)); //Microsoft.Data.SqliClient.dll
+                        if (type == null) type = Type.GetType("FreeSql.SqlServer.SqlServerProvider`1,FreeSql.Provider.SqlServerForSystem")?.MakeGenericType(typeof(TMark)); //System.Data.SqliClient.dll
                         if (type == null) throwNotFind("FreeSql.Provider.SqlServer.dll", "FreeSql.SqlServer.SqlServerProvider<>");
                         break;
                     case DataType.PostgreSQL:
@@ -242,6 +244,16 @@ namespace FreeSql
                     case DataType.ShenTong:
                         type = Type.GetType("FreeSql.ShenTong.ShenTongProvider`1,FreeSql.Provider.ShenTong")?.MakeGenericType(typeof(TMark));
                         if (type == null) throwNotFind("FreeSql.Provider.ShenTong.dll", "FreeSql.ShenTong.ShenTongProvider<>");
+                        break;
+
+                    case DataType.KingbaseES:
+                        type = Type.GetType("FreeSql.KingbaseES.KingbaseESProvider`1,FreeSql.Provider.KingbaseES")?.MakeGenericType(typeof(TMark));
+                        if (type == null) throwNotFind("FreeSql.Provider.KingbaseES.dll", "FreeSql.KingbaseES.KingbaseESProvider<>");
+                        break;
+
+                    case DataType.Firebird:
+                        type = Type.GetType("FreeSql.Firebird.FirebirdProvider`1,FreeSql.Provider.Firebird")?.MakeGenericType(typeof(TMark));
+                        if (type == null) throwNotFind("FreeSql.Provider.Firebird.dll", "FreeSql.Firebird.FirebirdProvider<>");
                         break;
 
                     default: throw new Exception("未指定 UseConnectionString 或者 UseConnectionFactory");
@@ -364,6 +376,38 @@ namespace FreeSql
                     if (dyattr != null)
                     {
                         e.ModifyResult.IsPrimary = true;
+                    }
+
+                    dyattr = attrs?.Where(a => {
+                        return ((a as Attribute)?.TypeId as Type)?.FullName == "System.ComponentModel.DataAnnotations.StringLengthAttribute";
+                    }).FirstOrDefault();
+                    if (dyattr != null)
+                    {
+                        var lenProps = dyattr.GetType().GetProperties().Where(a => a.PropertyType.IsNumberType()).ToArray();
+                        var lenProp = lenProps.Length == 1 ? lenProps.FirstOrDefault() : lenProps.Where(a => a.Name == "MaximumLength").FirstOrDefault();
+                        if (lenProp != null && int.TryParse(string.Concat(lenProp.GetValue(dyattr, null)), out var tryval) && tryval != 0)
+                        {
+                            e.ModifyResult.StringLength = tryval;
+                        }
+                    }
+
+                    //https://github.com/dotnetcore/FreeSql/issues/378
+                    dyattr = attrs?.Where(a => {
+                        return ((a as Attribute)?.TypeId as Type)?.FullName == "System.ComponentModel.DataAnnotations.Schema.DatabaseGeneratedAttribute";
+                    }).FirstOrDefault();
+                    if (dyattr != null)
+                    {
+                        switch(string.Concat(dyattr.GetType().GetProperty("DatabaseGeneratedOption")?.GetValue(dyattr, null)))
+                        {
+                            case "Identity":
+                            case "1":
+                                e.ModifyResult.IsIdentity = true;
+                                break;
+                            default:
+                                e.ModifyResult.CanInsert = false;
+                                e.ModifyResult.CanUpdate = false;
+                                break;
+                        }
                     }
                 });
                 //EFCore 特性

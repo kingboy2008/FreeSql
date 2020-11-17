@@ -2,9 +2,9 @@
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.0;net45;net40</TargetFrameworks>
-    <Version>1.7.0-preview0705</Version>
+    <Version>2.0.0-preview1115</Version>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <Authors>ncc;YeXiangQin</Authors>
+    <Authors>FreeSql;ncc;YeXiangQin</Authors>
     <Description>FreeSql 扩展包，实现 linq queryable 和 linq to sql 语法进行开发.</Description>
     <PackageProjectUrl>https://github.com/2881099/FreeSql</PackageProjectUrl>
     <RepositoryUrl>https://github.com/2881099/FreeSql</RepositoryUrl>
@@ -29,7 +29,11 @@
     <DocumentationFile>FreeSql.Extensions.Linq.xml</DocumentationFile>
     <WarningLevel>3</WarningLevel>
   </PropertyGroup>
-
+  
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net40'">
+    <DefineConstants>net40</DefineConstants>
+  </PropertyGroup>
+  
   <ItemGroup>
     <ProjectReference Include="..\..\FreeSql\FreeSql.csproj" />
   </ItemGroup>

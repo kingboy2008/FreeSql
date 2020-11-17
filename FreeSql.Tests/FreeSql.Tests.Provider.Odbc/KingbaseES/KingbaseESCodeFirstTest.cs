@@ -134,11 +134,12 @@ namespace FreeSql.Tests.Odbc.KingbaseES
         {
             var sql = g.kingbaseES.CodeFirst.GetComparisonDDLStatements<AddUniquesInfo>();
             g.kingbaseES.CodeFirst.SyncStructure<AddUniquesInfo>();
+            g.kingbaseES.CodeFirst.SyncStructure(typeof(AddUniquesInfo), "AddUniquesInfo1");
         }
         [Table(Name = "AddUniquesInfo", OldName = "AddUniquesInfo2")]
-        [Index("uk_phone", "phone", true)]
-        [Index("uk_group_index", "group,index", true)]
-        [Index("uk_group_index22", "group, index22", true)]
+        [Index("{tablename}_uk_phone", "phone", true)]
+        [Index("{tablename}_uk_group_index", "group,index", true)]
+        [Index("{tablename}_uk_group_index22", "group, index22", true)]
         class AddUniquesInfo
         {
             public Guid id { get; set; }
@@ -176,8 +177,8 @@ namespace FreeSql.Tests.Odbc.KingbaseES
         [Fact]
         public void GetComparisonDDLStatements()
         {
-
             var sql = g.kingbaseES.CodeFirst.GetComparisonDDLStatements<TableAllType>();
+            Assert.True(string.IsNullOrEmpty(sql)); //测试运行两次后
             //sql = g.kingbaseES.CodeFirst.GetComparisonDDLStatements<Tb_alltype>();
         }
 
@@ -220,6 +221,7 @@ namespace FreeSql.Tests.Odbc.KingbaseES
                 Short = short.MaxValue,
                 ShortNullable = short.MinValue,
                 String = "我是中国人string'\\?!@#$%^&*()_+{}}{~?><<>",
+                Char = 'X',
                 TimeSpan = TimeSpan.FromSeconds(999),
                 TimeSpanNullable = TimeSpan.FromSeconds(60),
                 UInt = uint.MaxValue,
@@ -254,21 +256,25 @@ namespace FreeSql.Tests.Odbc.KingbaseES
                 a.DateTimeOffSet,
                 a.Bytes,
                 a.String,
+                a.Char,
                 a.Guid
             });
             var newitem22 = select.Where(a => a.Id == item2.Id).First(a => new
             {
-                a.Id, a.id2, a.SByte, a.Short, a.Int, a.Long, a.Byte, a.UShort, a.UInt, a.ULong, a.Double, a.Float, a.Decimal, a.TimeSpan, a.DateTime, a.DateTimeOffSet, a.Bytes, a.String, a.Guid
+                a.Id, a.id2, a.SByte, a.Short, a.Int, a.Long, a.Byte, a.UShort, a.UInt, a.ULong, a.Double, a.Float, a.Decimal, a.TimeSpan, a.DateTime, a.DateTimeOffSet, a.Bytes, a.String, a.Char, a.Guid
             });
 
             var newitem2 = select.Where(a => a.Id == item2.Id).ToOne();
             Assert.Equal(item2.String, newitem2.String);
+            Assert.Equal(item2.Char, newitem2.Char);
 
             item2.Id = (int)insert.NoneParameter().AppendData(item2).ExecuteIdentity();
             newitem2 = select.Where(a => a.Id == item2.Id).ToOne();
             Assert.Equal(item2.String, newitem2.String);
+            Assert.Equal(item2.Char, newitem2.Char);
 
             var items = select.ToList();
+            var itemstb = select.ToDataTable();
         }
 
         [Table(Name = "tb_alltype")]
@@ -296,6 +302,7 @@ namespace FreeSql.Tests.Odbc.KingbaseES
             public DateTime DateTimeOffSet { get; set; }
             public byte[] Bytes { get; set; }
             public string String { get; set; }
+            public char Char { get; set; }
             public Guid Guid { get; set; }
 
             public bool? BoolNullable { get; set; }

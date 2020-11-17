@@ -1,12 +1,14 @@
-﻿using System;
+﻿using FreeSql.Internal.Model;
+using System;
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql
 {
-    public interface IUpdate<T1> where T1 : class
+    public interface IUpdate<T1>
     {
 
         /// <summary>
@@ -21,6 +23,12 @@ namespace FreeSql
         /// <param name="connection"></param>
         /// <returns></returns>
         IUpdate<T1> WithConnection(DbConnection connection);
+        /// <summary>
+        /// 命令超时设置(秒)
+        /// </summary>
+        /// <param name="timeout"></param>
+        /// <returns></returns>
+        IUpdate<T1> CommandTimeout(int timeout);
 
         /// <summary>
         /// 不使用参数化，可通过 IFreeSql.CodeFirst.IsNotCommandParameter 全局性设置
@@ -39,20 +47,29 @@ namespace FreeSql
         /// Sqlite 200 999<para></para>
         /// 若没有事务传入，内部(默认)会自动开启新事务，保证拆包执行的完整性。
         /// </summary>
-        /// <param name="rowsLimit">指定根据 rows 数量拆分执行</param>
-        /// <param name="parameterLimit">指定根据 parameters 数量拆分执行</param>
+        /// <param name="rowsLimit">指定根据 rows 上限数量拆分执行</param>
+        /// <param name="parameterLimit">指定根据 parameters 上限数量拆分执行</param>
         /// <param name="autoTransaction">是否自动开启事务</param>
         /// <returns></returns>
         IUpdate<T1> BatchOptions(int rowsLimit, int parameterLimit, bool autoTransaction = true);
 
         /// <summary>
-        /// 更新数据，设置更新的实体
+        /// 批量执行时，分批次执行的进度状态
+        /// </summary>
+        /// <param name="callback">批量执行时的回调委托</param>
+        /// <returns></returns>
+        IUpdate<T1> BatchProgress(Action<BatchProgressStatus<T1>> callback);
+
+        /// <summary>
+        /// 更新数据，设置更新的实体<para></para>
+        /// 注意：实体必须定义主键，并且最终会自动附加条件 where id = source.Id
         /// </summary>
         /// <param name="source">实体</param>
         /// <returns></returns>
         IUpdate<T1> SetSource(T1 source);
         /// <summary>
-        /// 更新数据，设置更新的实体集合
+        /// 更新数据，设置更新的实体集合<para></para>
+        /// 注意：实体必须定义主键，并且最终会自动附加条件 where id in (source.Id)
         /// </summary>
         /// <param name="source">实体集合</param>
         /// <returns></returns>
@@ -134,7 +151,8 @@ namespace FreeSql
         /// <returns></returns>
         IUpdate<T1> SetIf<TMember>(bool condition, Expression<Func<T1, TMember>> exp);
         /// <summary>
-        /// 设置值，自定义SQL语法，SetRaw("title = ?title", new { title = "newtitle" })
+        /// 设置值，自定义SQL语法，SetRaw("title = ?title", new { title = "newtitle" })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法</param>
         /// <param name="parms">参数</param>
@@ -159,7 +177,16 @@ namespace FreeSql
         /// <returns></returns>
         IUpdate<T1> Where(Expression<Func<T1, bool>> exp);
         /// <summary>
-        /// 原生sql语法条件，Where("id = ?id", new { id = 1 })
+        /// lambda表达式条件，仅支持实体基础成员（不包含导航对象）<para></para>
+        /// 若想使用导航对象，请使用 ISelect.ToUpdate() 方法
+        /// </summary>
+        /// <param name="condition">true 时生效</param>
+        /// <param name="exp">lambda表达式条件</param>
+        /// <returns></returns>
+        IUpdate<T1> WhereIf(bool condition, Expression<Func<T1, bool>> exp);
+        /// <summary>
+        /// 原生sql语法条件，Where("id = ?id", new { id = 1 })<para></para>
+        /// 提示：parms 参数还可以传 Dictionary&lt;string, object&gt;
         /// </summary>
         /// <param name="sql">sql语法条件</param>
         /// <param name="parms">参数</param>
@@ -223,8 +250,8 @@ namespace FreeSql
 
 #if net40
 #else
-        Task<int> ExecuteAffrowsAsync();
-        Task<List<T1>> ExecuteUpdatedAsync();
+        Task<int> ExecuteAffrowsAsync(CancellationToken cancellationToken = default);
+        Task<List<T1>> ExecuteUpdatedAsync(CancellationToken cancellationToken = default);
 #endif
     }
 }

@@ -19,6 +19,51 @@ namespace FreeSql.Tests.PostgreSQL
     public class PostgreSQLCodeFirstTest
     {
         [Fact]
+        public void DateTime_1()
+        {
+            var item1 = new TS_DATETIME01 { CreateTime = DateTime.Now };
+            Assert.Equal(1, g.pgsql.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.pgsql.Select<TS_DATETIME01>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+
+            item1.CreateTime = DateTime.Now;
+            Assert.Equal(1, g.pgsql.Update<TS_DATETIME01>().SetSource(item1).ExecuteAffrows());
+            item2 = g.pgsql.Select<TS_DATETIME01>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+        }
+        class TS_DATETIME01
+        {
+            public Guid Id { get; set; }
+            [Column(DbType = "timestamp NULL")]
+            public DateTime? CreateTime { get; set; }
+        }
+        [Fact]
+        public void DateTime_2()
+        {
+            var item1 = new TS_DATETIME02 { CreateTime = DateTime.Now };
+            Assert.Equal(1, g.pgsql.Insert(item1).ExecuteAffrows());
+
+            var item2 = g.pgsql.Select<TS_DATETIME02>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+
+            item1.CreateTime = DateTime.Now;
+            Assert.Equal(1, g.pgsql.Update<TS_DATETIME02>().SetSource(item1).ExecuteAffrows());
+            item2 = g.pgsql.Select<TS_DATETIME02>().Where(a => a.Id == item1.Id).First();
+            Assert.NotNull(item2.CreateTime);
+            Assert.True(1 > Math.Abs(item2.CreateTime.Value.Subtract(item1.CreateTime.Value).TotalSeconds));
+        }
+        class TS_DATETIME02
+        {
+            public Guid Id { get; set; }
+            [Column(DbType = "timestamp NOT NULL")]
+            public DateTime? CreateTime { get; set; }
+        }
+
+        [Fact]
         public void Blob()
         {
             var str1 = string.Join(",", Enumerable.Range(0, 10000).Select(a => "我是中国人"));
@@ -125,11 +170,12 @@ namespace FreeSql.Tests.PostgreSQL
         {
             var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<AddUniquesInfo>();
             g.pgsql.CodeFirst.SyncStructure<AddUniquesInfo>();
+            g.pgsql.CodeFirst.SyncStructure(typeof(AddUniquesInfo), "AddUniquesInfo1");
         }
         [Table(Name = "AddUniquesInfo", OldName = "AddUniquesInfo2")]
-        [Index("uk_phone", "phone", true)]
-        [Index("uk_group_index", "group,index", true)]
-        [Index("uk_group_index22", "group, index22", false)]
+        [Index("{tablename}_uk_phone", "phone", true)]
+        [Index("{tablename}_uk_group_index", "group,index", true)]
+        [Index("{tablename}_uk_group_index22", "group, index22", false)]
         class AddUniquesInfo
         {
             public Guid id { get; set; }
@@ -144,8 +190,8 @@ namespace FreeSql.Tests.PostgreSQL
         public void AddField()
         {
             var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<TopicAddField>();
+            Assert.True(string.IsNullOrEmpty(sql)); //测试运行两次后
             g.pgsql.Select<TopicAddField>();
-
             var id = g.pgsql.Insert<TopicAddField>().AppendData(new TopicAddField { }).ExecuteIdentity();
         }
 
@@ -387,6 +433,7 @@ namespace FreeSql.Tests.PostgreSQL
                 testFieldShortArrayNullable = new short?[] { 1, 2, 3, null, 4, 5 },
                 testFieldShortNullable = short.MinValue,
                 testFieldString = "我是中国人string'\\?!@#$%^&*()_+{}}{~?><<>",
+                testFieldChar = 'X',
                 testFieldStringArray = new[] { "我是中国人String1", "我是中国人String2", null, "我是中国人String3" },
                 testFieldTimeSpan = TimeSpan.FromDays(1),
                 testFieldTimeSpanArray = new[] { TimeSpan.FromDays(1), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(60) },
@@ -419,12 +466,15 @@ namespace FreeSql.Tests.PostgreSQL
             var item3 = insert.AppendData(item2).ExecuteInserted().First();
             var newitem2 = select.Where(a => a.Id == item3.Id && object.Equals(a.testFieldJToken["a"], "1")).ToOne();
             Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             item3 = insert.NoneParameter().AppendData(item2).ExecuteInserted().First();
             newitem2 = select.Where(a => a.Id == item3.Id && object.Equals(a.testFieldJToken["a"], "1")).ToOne();
             Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             var items = select.ToList();
+            var itemstb = select.ToDataTable();
         }
 
         [Table(Name = "tb_alltype")]
@@ -452,6 +502,7 @@ namespace FreeSql.Tests.PostgreSQL
 
             public byte[] testFieldBytes { get; set; }
             public string testFieldString { get; set; }
+            public char testFieldChar { get; set; }
             public Guid testFieldGuid { get; set; }
             public NpgsqlPoint testFieldNpgsqlPoint { get; set; }
             public NpgsqlLine testFieldNpgsqlLine { get; set; }

@@ -1,6 +1,6 @@
 ﻿using FreeSql.Internal;
 using FreeSql.Internal.Model;
-using MySql.Data.MySqlClient;
+using MySqlConnector;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -146,7 +146,7 @@ namespace FreeSql.MySql
             return columnName;
         }
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);

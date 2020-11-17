@@ -68,9 +68,9 @@ namespace FreeSql.Tests.DataAnnotations
         {
             g.mysql.CodeFirst
                 //.ConfigEntity<TestFluenttb1>(a => {
-                //	a.Name("xxdkdkdk1");
-                //	a.Property(b => b.Id).Name("Id22").IsIdentity(true);
-                //	a.Property(b => b.name).DbType("varchar(100)").IsNullable(true);
+                //    a.Name("xxdkdkdk1");
+                //    a.Property(b => b.Id).Name("Id22").IsIdentity(true);
+                //    a.Property(b => b.name).DbType("varchar(100)").IsNullable(true);
                 //})
 
                 .ConfigEntity(typeof(TestFluenttb1), a =>
@@ -179,7 +179,7 @@ namespace FreeSql.Tests.DataAnnotations
             item.title = "testtitle_update";
             item.testfield2 = 0;
             sql = g.mysql.Update<TestCanInsert>().SetSource(item).ToSql().Replace("\r\n", "");
-            Assert.Equal($"UPDATE `TestCanInsert` SET `id` = ?p_0, `title` = ?p_1, `testfield1` = ?p_2 WHERE (`id` = '{item.id}')", sql);
+            Assert.Equal($"UPDATE `TestCanInsert` SET `title` = ?p_0, `testfield1` = ?p_1 WHERE (`id` = '{item.id}')", sql);
 
             Assert.Equal(1, g.mysql.Update<TestCanInsert>().SetSource(item).ExecuteAffrows());
             find = g.mysql.Select<TestCanInsert>().Where(a => a.id == item.id).First();

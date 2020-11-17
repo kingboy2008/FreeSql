@@ -50,7 +50,7 @@ namespace FreeSql.Odbc.SqlServer
                 return string.Concat("N'", param.ToString().Replace("'", "''"), "'");
             }
             else if (param is char)
-                return string.Concat("'", param.ToString().Replace("'", "''"), "'");
+                return string.Concat("'", param.ToString().Replace("'", "''").Replace('\0', ' '), "'");
             else if (param is Enum)
                 return ((Enum)param).ToInt64();
             else if (decimal.TryParse(string.Concat(param), out var trydec))
@@ -75,7 +75,7 @@ namespace FreeSql.Odbc.SqlServer
             return string.Concat("'", param.ToString().Replace("'", "''"), "'");
         }
 
-        protected override DbCommand CreateCommand()
+        public override DbCommand CreateCommand()
         {
             return new OdbcCommand();
         }
@@ -87,6 +87,6 @@ namespace FreeSql.Odbc.SqlServer
             else pool.Return(conn);
         }
 
-        protected override DbParameter[] GetDbParamtersByObject(string sql, object obj) => _util.GetDbParamtersByObject(sql, obj);
+        public override DbParameter[] GetDbParamtersByObject(string sql, object obj) => _util.GetDbParamtersByObject(sql, obj);
     }
 }

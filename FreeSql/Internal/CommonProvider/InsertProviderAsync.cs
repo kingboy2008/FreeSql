@@ -7,6 +7,7 @@ using System.Data.Common;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.Internal.CommonProvider
@@ -16,7 +17,7 @@ namespace FreeSql.Internal.CommonProvider
     {
 #if net40
 #else
-        async protected Task<int> SplitExecuteAffrowsAsync(int valuesLimit, int parameterLimit)
+        async protected Task<int> SplitExecuteAffrowsAsync(int valuesLimit, int parameterLimit, CancellationToken cancellationToken = default)
         {
             var ss = SplitSource(valuesLimit, parameterLimit);
             var ret = 0;
@@ -27,12 +28,16 @@ namespace FreeSql.Internal.CommonProvider
             }
             if (ss.Length == 1)
             {
-                ret = await this.RawExecuteAffrowsAsync();
+                _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, 1, 1));
+                ret = await this.RawExecuteAffrowsAsync(cancellationToken);
                 ClearData();
                 return ret;
             }
             if (_transaction == null)
-                this.WithTransaction(_orm.Ado.TransactionCurrentThread);
+            {
+                var threadTransaction = _orm.Ado.TransactionCurrentThread;
+                if (threadTransaction != null) this.WithTransaction(threadTransaction);
+            }
 
             var before = new Aop.TraceBeforeEventArgs("SplitExecuteAffrowsAsync", null);
             _orm.Aop.TraceBeforeHandler?.Invoke(this, before);
@@ -43,12 +48,14 @@ namespace FreeSql.Internal.CommonProvider
                 {
                     for (var a = 0; a < ss.Length; a++)
                     {
-                        _source = ss[a];
-                        ret += await this.RawExecuteAffrowsAsync();
+                        _source = ss[a]; 
+                        _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
+                        ret += await this.RawExecuteAffrowsAsync(cancellationToken);
                     }
                 }
                 else
                 {
+                    if (_orm.Ado.MasterPool == null) throw new Exception("Ado.MasterPool 值为 null，该操作无法自启用事务，请显式传递【事务对象】解决");
                     using (var conn = await _orm.Ado.MasterPool.GetAsync())
                     {
                         _transaction = conn.Value.BeginTransaction();
@@ -59,7 +66,8 @@ namespace FreeSql.Internal.CommonProvider
                             for (var a = 0; a < ss.Length; a++)
                             {
                                 _source = ss[a];
-                                ret += await this.RawExecuteAffrowsAsync();
+                                _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
+                                ret += await this.RawExecuteAffrowsAsync(cancellationToken);
                             }
                             _transaction.Commit();
                             _orm.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(transBefore, "提交", null));
@@ -88,7 +96,7 @@ namespace FreeSql.Internal.CommonProvider
             return ret;
         }
 
-        async protected Task<long> SplitExecuteIdentityAsync(int valuesLimit, int parameterLimit)
+        async protected Task<long> SplitExecuteIdentityAsync(int valuesLimit, int parameterLimit, CancellationToken cancellationToken = default)
         {
             var ss = SplitSource(valuesLimit, parameterLimit);
             long ret = 0;
@@ -99,12 +107,16 @@ namespace FreeSql.Internal.CommonProvider
             }
             if (ss.Length == 1)
             {
-                ret = await this.RawExecuteIdentityAsync();
+                _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, 1, 1));
+                ret = await this.RawExecuteIdentityAsync(cancellationToken);
                 ClearData();
                 return ret;
             }
             if (_transaction == null)
-                this.WithTransaction(_orm.Ado.TransactionCurrentThread);
+            {
+                var threadTransaction = _orm.Ado.TransactionCurrentThread;
+                if (threadTransaction != null) this.WithTransaction(threadTransaction);
+            }
 
             var before = new Aop.TraceBeforeEventArgs("SplitExecuteIdentityAsync", null);
             _orm.Aop.TraceBeforeHandler?.Invoke(this, before);
@@ -116,12 +128,14 @@ namespace FreeSql.Internal.CommonProvider
                     for (var a = 0; a < ss.Length; a++)
                     {
                         _source = ss[a];
-                        if (a < ss.Length - 1) await this.RawExecuteAffrowsAsync();
-                        else ret = await this.RawExecuteIdentityAsync();
+                        _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
+                        if (a < ss.Length - 1) await this.RawExecuteAffrowsAsync(cancellationToken);
+                        else ret = await this.RawExecuteIdentityAsync(cancellationToken);
                     }
                 }
                 else
                 {
+                    if (_orm.Ado.MasterPool == null) throw new Exception("Ado.MasterPool 值为 null，该操作无法自启用事务，请显式传递【事务对象】解决");
                     using (var conn = await _orm.Ado.MasterPool.GetAsync())
                     {
                         _transaction = conn.Value.BeginTransaction();
@@ -132,8 +146,9 @@ namespace FreeSql.Internal.CommonProvider
                             for (var a = 0; a < ss.Length; a++)
                             {
                                 _source = ss[a];
-                                if (a < ss.Length - 1) await this.RawExecuteAffrowsAsync();
-                                else ret = await this.RawExecuteIdentityAsync();
+                                _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
+                                if (a < ss.Length - 1) await this.RawExecuteAffrowsAsync(cancellationToken);
+                                else ret = await this.RawExecuteIdentityAsync(cancellationToken);
                             }
                             _transaction.Commit();
                             _orm.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(transBefore, "提交", null));
@@ -162,7 +177,7 @@ namespace FreeSql.Internal.CommonProvider
             return ret;
         }
 
-        async protected Task<List<T1>> SplitExecuteInsertedAsync(int valuesLimit, int parameterLimit)
+        async protected Task<List<T1>> SplitExecuteInsertedAsync(int valuesLimit, int parameterLimit, CancellationToken cancellationToken = default)
         {
             var ss = SplitSource(valuesLimit, parameterLimit);
             var ret = new List<T1>();
@@ -173,12 +188,16 @@ namespace FreeSql.Internal.CommonProvider
             }
             if (ss.Length == 1)
             {
-                ret = await this.RawExecuteInsertedAsync();
+                _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, 1, 1));
+                ret = await this.RawExecuteInsertedAsync(cancellationToken);
                 ClearData();
                 return ret;
             }
             if (_transaction == null)
-                this.WithTransaction(_orm.Ado.TransactionCurrentThread);
+            {
+                var threadTransaction = _orm.Ado.TransactionCurrentThread;
+                if (threadTransaction != null) this.WithTransaction(threadTransaction);
+            }
 
             var before = new Aop.TraceBeforeEventArgs("SplitExecuteInsertedAsync", null);
             _orm.Aop.TraceBeforeHandler?.Invoke(this, before);
@@ -189,12 +208,14 @@ namespace FreeSql.Internal.CommonProvider
                 {
                     for (var a = 0; a < ss.Length; a++)
                     {
-                        _source = ss[a];
-                        ret.AddRange(await this.RawExecuteInsertedAsync());
+                        _source = ss[a]; 
+                        _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
+                        ret.AddRange(await this.RawExecuteInsertedAsync(cancellationToken));
                     }
                 }
                 else
                 {
+                    if (_orm.Ado.MasterPool == null) throw new Exception("Ado.MasterPool 值为 null，该操作无法自启用事务，请显式传递【事务对象】解决");
                     using (var conn = await _orm.Ado.MasterPool.GetAsync())
                     {
                         _transaction = conn.Value.BeginTransaction();
@@ -205,7 +226,8 @@ namespace FreeSql.Internal.CommonProvider
                             for (var a = 0; a < ss.Length; a++)
                             {
                                 _source = ss[a];
-                                ret.AddRange(await this.RawExecuteInsertedAsync());
+                                _batchProgress?.Invoke(new BatchProgressStatus<T1>(_source, a + 1, ss.Length));
+                                ret.AddRange(await this.RawExecuteInsertedAsync(cancellationToken));
                             }
                             _transaction.Commit();
                             _orm.Aop.TraceAfterHandler?.Invoke(this, new Aop.TraceAfterEventArgs(transBefore, "提交", null));
@@ -234,7 +256,7 @@ namespace FreeSql.Internal.CommonProvider
             return ret;
         }
 
-        async protected virtual Task<int> RawExecuteAffrowsAsync()
+        async protected virtual Task<int> RawExecuteAffrowsAsync(CancellationToken cancellationToken = default)
         {
             var sql = ToSql();
             var before = new Aop.CurdBeforeEventArgs(_table.Type, _table, Aop.CurdType.Insert, sql, _params);
@@ -243,7 +265,7 @@ namespace FreeSql.Internal.CommonProvider
             Exception exception = null;
             try
             {
-                affrows = await _orm.Ado.ExecuteNonQueryAsync(_connection, _transaction, CommandType.Text, sql, _params);
+                affrows = await _orm.Ado.ExecuteNonQueryAsync(_connection, _transaction, CommandType.Text, sql, _commandTimeout, _params, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -258,12 +280,12 @@ namespace FreeSql.Internal.CommonProvider
             return affrows;
         }
 
-        protected abstract Task<long> RawExecuteIdentityAsync();
-        protected abstract Task<List<T1>> RawExecuteInsertedAsync();
+        protected abstract Task<long> RawExecuteIdentityAsync(CancellationToken cancellationToken = default);
+        protected abstract Task<List<T1>> RawExecuteInsertedAsync(CancellationToken cancellationToken = default);
 
-        public abstract Task<int> ExecuteAffrowsAsync();
-        public abstract Task<long> ExecuteIdentityAsync();
-        public abstract Task<List<T1>> ExecuteInsertedAsync();
+        public abstract Task<int> ExecuteAffrowsAsync(CancellationToken cancellationToken = default);
+        public abstract Task<long> ExecuteIdentityAsync(CancellationToken cancellationToken = default);
+        public abstract Task<List<T1>> ExecuteInsertedAsync(CancellationToken cancellationToken = default);
 #endif
     }
 }

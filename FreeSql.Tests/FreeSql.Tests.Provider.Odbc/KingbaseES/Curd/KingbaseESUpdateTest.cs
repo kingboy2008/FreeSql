@@ -24,9 +24,9 @@ namespace FreeSql.Tests.Odbc.KingbaseES
         public void Dywhere()
         {
             Assert.Null(g.kingbaseES.Update<Topic>().ToSql());
-            Assert.Equal("UPDATE \"TB_TOPIC\" SET title='test' \r\nWHERE (\"ID\" = 1 OR \"ID\" = 2)", g.kingbaseES.Update<Topic>(new[] { 1, 2 }).SetRaw("title='test'").ToSql());
+            Assert.Equal("UPDATE \"TB_TOPIC\" SET title='test' \r\nWHERE (\"ID\" IN (1,2))", g.kingbaseES.Update<Topic>(new[] { 1, 2 }).SetRaw("title='test'").ToSql());
             Assert.Equal("UPDATE \"TB_TOPIC\" SET title='test1' \r\nWHERE (\"ID\" = 1)", g.kingbaseES.Update<Topic>(new Topic { Id = 1, Title = "test" }).SetRaw("title='test1'").ToSql());
-            Assert.Equal("UPDATE \"TB_TOPIC\" SET title='test1' \r\nWHERE (\"ID\" = 1 OR \"ID\" = 2)", g.kingbaseES.Update<Topic>(new[] { new Topic { Id = 1, Title = "test" }, new Topic { Id = 2, Title = "test" } }).SetRaw("title='test1'").ToSql());
+            Assert.Equal("UPDATE \"TB_TOPIC\" SET title='test1' \r\nWHERE (\"ID\" IN (1,2))", g.kingbaseES.Update<Topic>(new[] { new Topic { Id = 1, Title = "test" }, new Topic { Id = 2, Title = "test" } }).SetRaw("title='test1'").ToSql());
             Assert.Equal("UPDATE \"TB_TOPIC\" SET title='test1' \r\nWHERE (\"ID\" = 1)", g.kingbaseES.Update<Topic>(new { id = 1 }).SetRaw("title='test1'").ToSql());
         }
 
@@ -41,10 +41,10 @@ namespace FreeSql.Tests.Odbc.KingbaseES
             items[0].Clicks = null;
 
             sql = update.SetSource(items).ToSql().Replace("\r\n", "");
-            Assert.Equal("UPDATE \"TB_TOPIC\" SET \"CLICKS\" = CASE \"ID\" WHEN 1 THEN NULL WHEN 2 THEN 100 WHEN 3 THEN 200 WHEN 4 THEN 300 WHEN 5 THEN 400 WHEN 6 THEN 500 WHEN 7 THEN 600 WHEN 8 THEN 700 WHEN 9 THEN 800 WHEN 10 THEN 900 END::int4, \"TITLE\" = CASE \"ID\" WHEN 1 THEN 'newtitle0' WHEN 2 THEN 'newtitle1' WHEN 3 THEN 'newtitle2' WHEN 4 THEN 'newtitle3' WHEN 5 THEN 'newtitle4' WHEN 6 THEN 'newtitle5' WHEN 7 THEN 'newtitle6' WHEN 8 THEN 'newtitle7' WHEN 9 THEN 'newtitle8' WHEN 10 THEN 'newtitle9' END::varchar, \"CREATETIME\" = CASE \"ID\" WHEN 1 THEN '0001-01-01 00:00:00.000000' WHEN 2 THEN '0001-01-01 00:00:00.000000' WHEN 3 THEN '0001-01-01 00:00:00.000000' WHEN 4 THEN '0001-01-01 00:00:00.000000' WHEN 5 THEN '0001-01-01 00:00:00.000000' WHEN 6 THEN '0001-01-01 00:00:00.000000' WHEN 7 THEN '0001-01-01 00:00:00.000000' WHEN 8 THEN '0001-01-01 00:00:00.000000' WHEN 9 THEN '0001-01-01 00:00:00.000000' WHEN 10 THEN '0001-01-01 00:00:00.000000' END::timestamp WHERE (\"ID\" IN (1,2,3,4,5,6,7,8,9,10))", sql);
+            Assert.Equal("UPDATE \"TB_TOPIC\" SET \"CLICKS\" = CASE \"ID\" WHEN 1 THEN NULL WHEN 2 THEN 100 WHEN 3 THEN 200 WHEN 4 THEN 300 WHEN 5 THEN 400 WHEN 6 THEN 500 WHEN 7 THEN 600 WHEN 8 THEN 700 WHEN 9 THEN 800 WHEN 10 THEN 900 END::int4, \"TITLE\" = CASE \"ID\" WHEN 1 THEN 'newtitle0' WHEN 2 THEN 'newtitle1' WHEN 3 THEN 'newtitle2' WHEN 4 THEN 'newtitle3' WHEN 5 THEN 'newtitle4' WHEN 6 THEN 'newtitle5' WHEN 7 THEN 'newtitle6' WHEN 8 THEN 'newtitle7' WHEN 9 THEN 'newtitle8' WHEN 10 THEN 'newtitle9' END::text, \"CREATETIME\" = CASE \"ID\" WHEN 1 THEN '0001-01-01 00:00:00.000000' WHEN 2 THEN '0001-01-01 00:00:00.000000' WHEN 3 THEN '0001-01-01 00:00:00.000000' WHEN 4 THEN '0001-01-01 00:00:00.000000' WHEN 5 THEN '0001-01-01 00:00:00.000000' WHEN 6 THEN '0001-01-01 00:00:00.000000' WHEN 7 THEN '0001-01-01 00:00:00.000000' WHEN 8 THEN '0001-01-01 00:00:00.000000' WHEN 9 THEN '0001-01-01 00:00:00.000000' WHEN 10 THEN '0001-01-01 00:00:00.000000' END::timestamp WHERE (\"ID\" IN (1,2,3,4,5,6,7,8,9,10))", sql);
 
             sql = update.SetSource(items).IgnoreColumns(a => new { a.Clicks, a.CreateTime }).ToSql().Replace("\r\n", "");
-            Assert.Equal("UPDATE \"TB_TOPIC\" SET \"TITLE\" = CASE \"ID\" WHEN 1 THEN 'newtitle0' WHEN 2 THEN 'newtitle1' WHEN 3 THEN 'newtitle2' WHEN 4 THEN 'newtitle3' WHEN 5 THEN 'newtitle4' WHEN 6 THEN 'newtitle5' WHEN 7 THEN 'newtitle6' WHEN 8 THEN 'newtitle7' WHEN 9 THEN 'newtitle8' WHEN 10 THEN 'newtitle9' END::varchar WHERE (\"ID\" IN (1,2,3,4,5,6,7,8,9,10))", sql);
+            Assert.Equal("UPDATE \"TB_TOPIC\" SET \"TITLE\" = CASE \"ID\" WHEN 1 THEN 'newtitle0' WHEN 2 THEN 'newtitle1' WHEN 3 THEN 'newtitle2' WHEN 4 THEN 'newtitle3' WHEN 5 THEN 'newtitle4' WHEN 6 THEN 'newtitle5' WHEN 7 THEN 'newtitle6' WHEN 8 THEN 'newtitle7' WHEN 9 THEN 'newtitle8' WHEN 10 THEN 'newtitle9' END::text WHERE (\"ID\" IN (1,2,3,4,5,6,7,8,9,10))", sql);
 
             sql = update.SetSource(items).Set(a => a.CreateTime, new DateTime(2020, 1, 1)).ToSql().Replace("\r\n", "");
             Assert.Equal("UPDATE \"TB_TOPIC\" SET \"CREATETIME\" = '2020-01-01 00:00:00.000000' WHERE (\"ID\" IN (1,2,3,4,5,6,7,8,9,10))", sql);
@@ -181,9 +181,9 @@ namespace FreeSql.Tests.Odbc.KingbaseES
         public void AsTable()
         {
             Assert.Null(g.kingbaseES.Update<Topic>().ToSql());
-            Assert.Equal("UPDATE \"TB_TOPICASTABLE\" SET title='test' \r\nWHERE (\"ID\" = 1 OR \"ID\" = 2)", g.kingbaseES.Update<Topic>(new[] { 1, 2 }).SetRaw("title='test'").AsTable(a => "tb_topicAsTable").ToSql());
+            Assert.Equal("UPDATE \"TB_TOPICASTABLE\" SET title='test' \r\nWHERE (\"ID\" IN (1,2))", g.kingbaseES.Update<Topic>(new[] { 1, 2 }).SetRaw("title='test'").AsTable(a => "tb_topicAsTable").ToSql());
             Assert.Equal("UPDATE \"TB_TOPICASTABLE\" SET title='test1' \r\nWHERE (\"ID\" = 1)", g.kingbaseES.Update<Topic>(new Topic { Id = 1, Title = "test" }).SetRaw("title='test1'").AsTable(a => "tb_topicAsTable").ToSql());
-            Assert.Equal("UPDATE \"TB_TOPICASTABLE\" SET title='test1' \r\nWHERE (\"ID\" = 1 OR \"ID\" = 2)", g.kingbaseES.Update<Topic>(new[] { new Topic { Id = 1, Title = "test" }, new Topic { Id = 2, Title = "test" } }).SetRaw("title='test1'").AsTable(a => "tb_topicAsTable").ToSql());
+            Assert.Equal("UPDATE \"TB_TOPICASTABLE\" SET title='test1' \r\nWHERE (\"ID\" IN (1,2))", g.kingbaseES.Update<Topic>(new[] { new Topic { Id = 1, Title = "test" }, new Topic { Id = 2, Title = "test" } }).SetRaw("title='test1'").AsTable(a => "tb_topicAsTable").ToSql());
             Assert.Equal("UPDATE \"TB_TOPICASTABLE\" SET title='test1' \r\nWHERE (\"ID\" = 1)", g.kingbaseES.Update<Topic>(new { id = 1 }).SetRaw("title='test1'").AsTable(a => "tb_topicAsTable").ToSql());
         }
     }

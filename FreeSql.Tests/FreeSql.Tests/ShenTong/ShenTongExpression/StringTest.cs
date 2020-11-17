@@ -51,6 +51,19 @@ namespace FreeSql.Tests.ShenTongExpression
         }
 
         [Fact]
+        public void First()
+        {
+            Assert.Equal('x', select.First(a => "x1".First()));
+            Assert.Equal('z', select.First(a => "z1".First()));
+        }
+        [Fact]
+        public void FirstOrDefault()
+        {
+            Assert.Equal('x', select.First(a => "x1".FirstOrDefault()));
+            Assert.Equal('z', select.First(a => "z1".FirstOrDefault()));
+        }
+
+        [Fact]
         public void Format()
         {
             var item = g.shentong.GetRepository<Topic>().Insert(new Topic { Clicks = 101, Title = "我是中国人101", CreateTime = DateTime.Parse("2020-7-5") });
@@ -59,7 +72,7 @@ namespace FreeSql.Tests.ShenTongExpression
                 str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}",
                 str2 = string.Format("{0}x{0}z-{1}{2}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title)
             });
-            Assert.Equal($@"SELECT 'x'||((a.""ID"" + 1))||'z-'||(to_char((a.""CREATETIME"")::timestamp,'YYYYMM'))||''||(a.""TITLE"")||'' as1, ''||((a.""ID"" + 1))||'x'||((a.""ID"" + 1))||'z-'||(to_char((a.""CREATETIME"")::timestamp,'YYYYMM'))||''||(a.""TITLE"")||'' as2 
+            Assert.Equal($@"SELECT 'x'||coalesce((a.""ID"" + 1), '')||'z-'||coalesce(to_char((a.""CREATETIME"")::timestamp,'YYYYMM'), '')||''||coalesce(a.""TITLE"", '')||'' as1, ''||coalesce((a.""ID"" + 1), '')||'x'||coalesce((a.""ID"" + 1), '')||'z-'||coalesce(to_char((a.""CREATETIME"")::timestamp,'YYYYMM'), '')||''||coalesce(a.""TITLE"", '')||'' as2 
 FROM ""TB_TOPIC"" a 
 WHERE (a.""ID"" = {item.Id})", sql);
 
@@ -71,6 +84,31 @@ WHERE (a.""ID"" = {item.Id})", sql);
             Assert.NotNull(item2);
             Assert.Equal($"x{item.Id + 1}z-{item.CreateTime.ToString("yyyyMM")}{item.Title}", item2.str);
             Assert.Equal(string.Format("{0}x{0}z-{1}{2}", item.Id + 1, item.CreateTime.ToString("yyyyMM"), item.Title), item2.str2);
+        }
+
+        [Fact]
+        public void Format4()
+        { 
+            //3个 {} 时，Arguments 解析出来是分开的
+            //4个 {} 时，Arguments[1] 只能解析这个出来，然后里面是 NewArray []
+            var item = g.shentong.GetRepository<Topic>().Insert(new Topic { Clicks = 101, Title = "我是中国人101", CreateTime = DateTime.Parse("2020-7-5") });
+            var sql = select.WhereDynamic(item).ToSql(a => new
+            {
+                str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}{a.Title}",
+                str2 = string.Format("{0}x{0}z-{1}{2}{3}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title, a.Title)
+            });
+            Assert.Equal($@"SELECT 'x'||coalesce((a.""ID"" + 1), '')||'z-'||coalesce(to_char((a.""CREATETIME"")::timestamp,'YYYYMM'), '')||''||coalesce(a.""TITLE"", '')||''||coalesce(a.""TITLE"", '')||'' as1, ''||coalesce((a.""ID"" + 1), '')||'x'||coalesce((a.""ID"" + 1), '')||'z-'||coalesce(to_char((a.""CREATETIME"")::timestamp,'YYYYMM'), '')||''||coalesce(a.""TITLE"", '')||''||coalesce(a.""TITLE"", '')||'' as2 
+FROM ""TB_TOPIC"" a 
+WHERE (a.""ID"" = {item.Id})", sql);
+
+            var item2 = select.WhereDynamic(item).First(a => new
+            {
+                str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}{a.Title}",
+                str2 = string.Format("{0}x{0}z-{1}{2}{3}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title, a.Title)
+            });
+            Assert.NotNull(item2);
+            Assert.Equal($"x{item.Id + 1}z-{item.CreateTime.ToString("yyyyMM")}{item.Title}{item.Title}", item2.str);
+            Assert.Equal(string.Format("{0}x{0}z-{1}{2}{3}", item.Id + 1, item.CreateTime.ToString("yyyyMM"), item.Title, item.Title), item2.str2);
         }
 
         [Fact]
