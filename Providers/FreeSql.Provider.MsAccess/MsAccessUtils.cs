@@ -38,7 +38,7 @@ namespace FreeSql.MsAccess
             });
 
         public override string FormatSql(string sql, params object[] args) => sql?.FormatAccess(args);
-        public override string QuoteSqlName(params string[] name)
+        public override string QuoteSqlNameAdapter(params string[] name)
         {
             if (name.Length == 1)
             {
@@ -77,21 +77,16 @@ namespace FreeSql.MsAccess
         public override string Now => "now()";
         public override string NowUtc => "now()";
 
-        public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
-        public override string QuoteReadColumn(Type type, Type mapType, string columnName) => columnName;
+        public override string QuoteWriteParamterAdapter(Type type, string paramterName) => paramterName;
+        protected override string QuoteReadColumnAdapter(Type type, Type mapType, string columnName) => columnName;
         public override string FieldAsAlias(string alias) => $" as {alias}";
         public override string IIF(string test, string ifTrue, string ifElse) => $"iif({test}, {ifTrue}, {ifElse})";
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);
             if (type == typeof(byte[])) return $"0x{CommonUtils.BytesSqlRaw(value as byte[])}";
-            if (type == typeof(TimeSpan) || type == typeof(TimeSpan?))
-            {
-                var ts = (TimeSpan)value;
-                value = $"{ts.Hours}:{ts.Minutes}:{ts.Seconds}";
-            }
             return FormatSql("{0}", value, 1);
         }
 

@@ -44,6 +44,7 @@ namespace FreeSql
 
             PrevCommandInfo oldinfo = null;
             var states = new List<object>();
+            var flagFuncUpdateLaststate = false;
 
             int dbsetBatch(string method)
             {
@@ -92,7 +93,11 @@ namespace FreeSql
                 { //没有执行更新
                     var laststate = states[states.Count - 1];
                     states.Clear();
-                    if (affrows == -997) states.Add(laststate); //保留最后一个
+                    if (affrows == -997)
+                    {
+                        flagFuncUpdateLaststate = true;
+                        states.Add(laststate); //保留最后一个
+                    }
                 }
                 if (affrows > 0)
                 {
@@ -100,54 +105,72 @@ namespace FreeSql
                     var islastNotUpdated = states.Count != affrows;
                     var laststate = states[states.Count - 1];
                     states.Clear();
-                    if (islastNotUpdated) states.Add(laststate); //保留最后一个
+                    if (islastNotUpdated)
+                    {
+                        flagFuncUpdateLaststate = true;
+                        states.Add(laststate); //保留最后一个
+                    }
                 }
             };
 
-            while (_prevCommands.Any() || states.Any())
+            try
             {
-                var info = _prevCommands.Any() ? _prevCommands.Dequeue() : null;
-                if (oldinfo == null) oldinfo = info;
-                var isLiveUpdate = false;
-
-                if (_prevCommands.Any() == false && states.Any() ||
-                    info != null && oldinfo.changeType != info.changeType ||
-                    info != null && oldinfo.stateType != info.stateType ||
-                    info != null && oldinfo.entityType != info.entityType)
+                while (_prevCommands.Any() || states.Any())
                 {
+                    var info = _prevCommands.Any() ? _prevCommands.Dequeue() : null;
+                    if (oldinfo == null) oldinfo = info;
+                    var isLiveUpdate = false;
+                    flagFuncUpdateLaststate = false;
 
-                    if (info != null && oldinfo.changeType == info.changeType && oldinfo.stateType == info.stateType && oldinfo.entityType == info.entityType)
+                    if (_prevCommands.Any() == false && states.Any() ||
+                        info != null && oldinfo.changeType != info.changeType ||
+                        info != null && oldinfo.stateType != info.stateType ||
+                        info != null && oldinfo.entityType != info.entityType)
                     {
-                        //最后一个，合起来发送
+
+                        if (info != null && oldinfo.changeType == info.changeType && oldinfo.stateType == info.stateType && oldinfo.entityType == info.entityType)
+                        {
+                            //最后一个，合起来发送
+                            states.Add(info.state);
+                            info = null;
+                        }
+
+                        switch (oldinfo.changeType)
+                        {
+                            case EntityChangeType.Insert:
+                                funcInsert();
+                                break;
+                            case EntityChangeType.Delete:
+                                funcDelete();
+                                break;
+                        }
+                        isLiveUpdate = true;
+                    }
+
+                    if (isLiveUpdate || oldinfo.changeType == EntityChangeType.Update)
+                    {
+                        if (states.Any())
+                        {
+                            funcUpdate(isLiveUpdate);
+                            if (info?.changeType == EntityChangeType.Update)
+                                flagFuncUpdateLaststate = true;
+                        }
+                    }
+
+                    if (info != null)
+                    {
                         states.Add(info.state);
-                        info = null;
+                        oldinfo = info;
+
+                        if (flagFuncUpdateLaststate && oldinfo.changeType == EntityChangeType.Update) //马上与上个元素比较
+                            funcUpdate(isLiveUpdate);
                     }
-
-                    switch (oldinfo.changeType)
-                    {
-                        case EntityChangeType.Insert:
-                            funcInsert();
-                            break;
-                        case EntityChangeType.Delete:
-                            funcDelete();
-                            break;
-                    }
-                    isLiveUpdate = true;
-                }
-
-                if (isLiveUpdate || oldinfo.changeType == EntityChangeType.Update)
-                {
-                    if (states.Any())
-                        funcUpdate(isLiveUpdate);
-                }
-
-                if (info != null)
-                {
-                    states.Add(info.state);
-                    oldinfo = info;
                 }
             }
-            isFlushCommanding = false;
+            finally
+            {
+                isFlushCommanding = false;
+            }
         }
     }
 }

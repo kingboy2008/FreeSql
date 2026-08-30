@@ -15,9 +15,25 @@ namespace FreeSql
         /// <summary>
         /// 获取指定数据库的表信息，包括表、列详情、主键、唯一键、索引、外键、备注
         /// </summary>
-        /// <param name="database"></param>
+        /// <param name="database">可选-默认查询当前数据库</param>
         /// <returns></returns>
         List<DbTableInfo> GetTablesByDatabase(params string[] database);
+
+        /// <summary>
+        /// 获取指定单表信息，包括列详情、主键、唯一键、索引、备注
+        /// </summary>
+        /// <param name="name">表名，如：dbo.table1</param>
+        /// <param name="ignoreCase">是否忽略大小写</param>
+        /// <returns></returns>
+        DbTableInfo GetTableByName(string name, bool ignoreCase = true);
+
+        /// <summary>
+        /// 判断表是否存在
+        /// </summary>
+        /// <param name="name">表名，如：dbo.table1</param>
+        /// <param name="ignoreCase">是否忽略大小写</param>
+        /// <returns></returns>
+        bool ExistsTable(string name, bool ignoreCase = true);
 
         /// <summary>
         /// 获取数据库枚举类型int值

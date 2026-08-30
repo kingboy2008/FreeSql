@@ -19,6 +19,12 @@ namespace FreeSql.ShenTong
             Func<Expression, string> getExp = exparg => ExpressionLambdaToSql(exparg, tsc);
             switch (exp.NodeType)
             {
+                case ExpressionType.ArrayLength:
+                    var arrOper = (exp as UnaryExpression)?.Operand;
+                    var arrOperExp = getExp(arrOper);
+                    if (arrOperExp.StartsWith("(") || arrOperExp.EndsWith(")")) return $"array_length(array[{arrOperExp.TrimStart('(').TrimEnd(')')}],1)";
+                    //if (arrOper.Type == typeof(byte[])) return $"octet_length({getExp(arrOper)})"; #505
+                    return $"case when {arrOperExp} is null then 0 else array_length({arrOperExp},1) end";
                 case ExpressionType.Convert:
                     var operandExp = (exp as UnaryExpression)?.Operand;
                     var gentype = exp.Type.NullableTypeOrThis();
@@ -26,10 +32,28 @@ namespace FreeSql.ShenTong
                     {
                         switch (exp.Type.NullableTypeOrThis().ToString())
                         {
-                            case "System.Boolean": return $"(({getExp(operandExp)})::text not in ('0','false','f','no'))";
+                            case "System.Boolean":
+                                var boolstr = getExp(operandExp);
+                                switch (boolstr)
+                                {
+                                    case "0":
+                                    case "'0'":
+                                    case "false":
+                                    case "'f'":
+                                    case "'no'":
+                                        return "'f'::bool";
+                                    case "1":
+                                    case "'1'":
+                                    case "true":
+                                    case "'t'":
+                                    case "'yes'":
+                                        return "'t'::bool";
+                                    default:
+                                        return $"(({boolstr})::varchar not in ('0','false','f','no'))";
+                                }
                             case "System.Byte": return $"({getExp(operandExp)})::int2";
                             case "System.Char": return $"substr(({getExp(operandExp)})::char, 1, 1)";
-                            case "System.DateTime": return $"({getExp(operandExp)})::timestamp";
+                            case "System.DateTime": return ExpressionConstDateTime(operandExp) ?? $"({getExp(operandExp)})::timestamp";
                             case "System.Decimal": return $"({getExp(operandExp)})::numeric";
                             case "System.Double": return $"({getExp(operandExp)})::float8";
                             case "System.Int16": return $"({getExp(operandExp)})::int2";
@@ -45,10 +69,6 @@ namespace FreeSql.ShenTong
                         }
                     }
                     break;
-                case ExpressionType.ArrayLength:
-                    var arrOperExp = getExp((exp as UnaryExpression).Operand);
-                    if (arrOperExp.StartsWith("(") || arrOperExp.EndsWith(")")) return $"array_length(array[{arrOperExp.TrimStart('(').TrimEnd(')')}],1)";
-                    return $"case when {arrOperExp} is null then 0 else array_length({arrOperExp},1) end";
                 case ExpressionType.Call:
                     var callExp = exp as MethodCallExpression;
 
@@ -58,10 +78,28 @@ namespace FreeSql.ShenTong
                         case "TryParse":
                             switch (callExp.Method.DeclaringType.NullableTypeOrThis().ToString())
                             {
-                                case "System.Boolean": return $"(({getExp(callExp.Arguments[0])})::text not in ('0','false','f','no'))";
+                                case "System.Boolean":
+                                    var boolstr = getExp(callExp.Arguments[0]);
+                                    switch (boolstr)
+                                    {
+                                        case "0":
+                                        case "'0'":
+                                        case "false":
+                                        case "'f'":
+                                        case "'no'":
+                                            return "'f'::bool";
+                                        case "1":
+                                        case "'1'":
+                                        case "true":
+                                        case "'t'":
+                                        case "'yes'":
+                                            return "'t'::bool";
+                                        default:
+                                            return $"(({boolstr})::varchar not in ('0','false','f','no'))";
+                                    }
                                 case "System.Byte": return $"({getExp(callExp.Arguments[0])})::int2";
                                 case "System.Char": return $"substr(({getExp(callExp.Arguments[0])})::char, 1, 1)";
-                                case "System.DateTime": return $"({getExp(callExp.Arguments[0])})::timestamp";
+                                case "System.DateTime": return ExpressionConstDateTime(callExp.Arguments[0]) ?? $"({getExp(callExp.Arguments[0])})::timestamp";
                                 case "System.Decimal": return $"({getExp(callExp.Arguments[0])})::numeric";
                                 case "System.Double": return $"({getExp(callExp.Arguments[0])})::float8";
                                 case "System.Int16": return $"({getExp(callExp.Arguments[0])})::int2";
@@ -87,7 +125,20 @@ namespace FreeSql.ShenTong
                             if (callExp.Method.DeclaringType.IsNumberType()) return "random()";
                             return null;
                         case "ToString":
-                            if (callExp.Object != null) return callExp.Arguments.Count == 0 ? $"({getExp(callExp.Object)})::text" : null;
+                            if (callExp.Object != null)
+                            {
+                                if (callExp.Object.Type.NullableTypeOrThis().IsEnum)
+                                {
+                                    tsc.SetMapColumnTmp(null);
+                                    var oldMapType = tsc.SetMapTypeReturnOld(typeof(string));
+                                    var enumStr = ExpressionLambdaToSql(callExp.Object, tsc);
+                                    tsc.SetMapColumnTmp(null).SetMapTypeReturnOld(oldMapType);
+                                    return enumStr;
+								}
+								var value = ExpressionGetValue(callExp.Object, out var success);
+								if (success) return formatSql(value, typeof(string), null, null);
+								return callExp.Arguments.Count == 0 ? $"({getExp(callExp.Object)})::text" : null;
+                            }
                             return null;
                     }
 
@@ -96,11 +147,24 @@ namespace FreeSql.ShenTong
                     if (objType?.FullName == "System.Byte[]") return null;
 
                     var argIndex = 0;
-                    if (objType == null && callExp.Method.DeclaringType == typeof(Enumerable))
+                    if (objType == null && (
+                        callExp.Method.DeclaringType == typeof(Enumerable) ||
+                        callExp.Method.DeclaringType.FullName == "System.MemoryExtensions"
+                        ))
                     {
                         objExp = callExp.Arguments.FirstOrDefault();
                         objType = objExp?.Type;
                         argIndex++;
+
+                        if (objType == typeof(string))
+                        {
+                            switch (callExp.Method.Name)
+                            {
+                                case "First":
+                                case "FirstOrDefault":
+                                    return $"substr({getExp(callExp.Arguments[0])}, 1, 1)";
+                            }
+                        }
                     }
                     if (objType == null) objType = callExp.Method.DeclaringType;
                     if (objType != null || objType.IsArrayOrList())
@@ -116,20 +180,24 @@ namespace FreeSql.ShenTong
                                 tsc.SetMapColumnTmp(null);
                                 var args1 = getExp(callExp.Arguments[argIndex]);
                                 var oldMapType = tsc.SetMapTypeReturnOld(tsc.mapTypeTmp);
-                                var oldDbParams = tsc.SetDbParamsReturnOld(null);
+                                var oldDbParams = objExp?.NodeType == ExpressionType.MemberAccess ? tsc.SetDbParamsReturnOld(null) : null; //#900 UseGenerateCommandParameterWithLambda(true) 子查询 bug、以及 #1173 参数化 bug
+                                tsc.isNotSetMapColumnTmp = true;
                                 left = objExp == null ? null : getExp(objExp);
+                                tsc.isNotSetMapColumnTmp = false;
                                 tsc.SetMapColumnTmp(null).SetMapTypeReturnOld(oldMapType);
-                                tsc.SetDbParamsReturnOld(oldDbParams);
-                                //判断 in 或 array @> array
-                                if (left.StartsWith("array[") || left.EndsWith("]"))
-                                    return $"({args1}) in ({left.Substring(6, left.Length - 7)})";
-                                if (left.StartsWith("(") || left.EndsWith(")")) //在各大 Provider AdoProvider 中已约定，500元素分割, 3空格\r\n4空格
-                                    return $"(({args1}) in {left.Replace(",   \r\n    \r\n", $") \r\n OR ({args1}) in (")})";
-                                if (args1.StartsWith("(") || args1.EndsWith(")")) args1 = $"array[{args1.TrimStart('(').TrimEnd(')')}]";
-                                args1 = $"array[{args1}]";
-                                if (objExp != null)
+                                if (oldDbParams != null) tsc.SetDbParamsReturnOld(oldDbParams);
+								//判断 in 或 array @> array
+								if (left.StartsWith("array[") && left.EndsWith("]"))
+									return $"({args1}) in ({left.Substring(6, left.Length - 7)})";
+								if (left.StartsWith("(") && left.EndsWith(")")) //在各大 Provider AdoProvider 中已约定，500元素分割, 3空格\r\n4空格
+									return $"(({args1}) in {left.Replace(",   \r\n    \r\n", $") \r\n OR ({args1}) in (")})";
+								if (args1.StartsWith("(") && args1.EndsWith(")")) args1 = $"array[{args1.TrimStart('(').TrimEnd(')')}]";
+								else args1 = $"array[{args1}]";
+								if (objExp != null)
                                 {
-                                    var dbinfo = _common._orm.CodeFirst.GetDbInfo(objExp.Type);
+                                    var dbinfo = _common._orm.CodeFirst.GetDbInfo(
+                                        objExp.IsReadonlySpanOp_Implicit() ? (objExp as MethodCallExpression).Arguments[0].Type :
+                                        objExp.Type);
                                     if (dbinfo != null) args1 = $"{args1}::{dbinfo.dbtype}";
                                 }
                                 return $"({left} @> {args1})";
@@ -252,35 +320,6 @@ namespace FreeSql.ShenTong
             }
             return null;
         }
-        public override string ExpressionLambdaToSqlMemberAccessTimeSpan(MemberExpression exp, ExpTSC tsc)
-        {
-            if (exp.Expression == null)
-            {
-                switch (exp.Member.Name)
-                {
-                    case "Zero": return "0";
-                    case "MinValue": return "-922337203685477580"; //微秒 Ticks / 10
-                    case "MaxValue": return "922337203685477580";
-                }
-                return null;
-            }
-            var left = ExpressionLambdaToSql(exp.Expression, tsc);
-            switch (exp.Member.Name)
-            {
-                case "Days": return $"floor(({left})/{60 * 60 * 24})";
-                case "Hours": return $"floor(({left})/{60 * 60}%24)";
-                case "Milliseconds": return $"(({left})::int8*1000)";
-                case "Minutes": return $"floor(({left})/60%60)";
-                case "Seconds": return $"(({left})%60)";
-                case "Ticks": return $"(({left})::int8*10000000)";
-                case "TotalDays": return $"(({left})/{60 * 60 * 24})";
-                case "TotalHours": return $"(({left})/{60 * 60})";
-                case "TotalMilliseconds": return $"(({left})::int8*1000)";
-                case "TotalMinutes": return $"(({left})/60)";
-                case "TotalSeconds": return $"({left})";
-            }
-            return null;
-        }
 
         public override string ExpressionLambdaToSqlCallString(MethodCallExpression exp, ExpTSC tsc)
         {
@@ -296,11 +335,31 @@ namespace FreeSql.ShenTong
                         var arg2 = getExp(exp.Arguments[0]);
                         return $"({arg2} is null or {arg2} = '' or ltrim({arg2}) = '')";
                     case "Concat":
+                        if (exp.Arguments.Count == 1 && exp.Arguments[0].NodeType == ExpressionType.NewArrayInit && exp.Arguments[0] is NewArrayExpression concatNewArrExp)
+                            return _common.StringConcat(concatNewArrExp.Expressions.Select(a => getExp(a)).ToArray(), null);
                         return _common.StringConcat(exp.Arguments.Select(a => getExp(a)).ToArray(), null);
                     case "Format":
-                        if (exp.Arguments[0].NodeType != ExpressionType.Constant) throw new Exception($"未实现函数表达式 {exp} 解析，参数 {exp.Arguments[0]} 必须为常量");
-                        var expArgs = exp.Arguments.Where((a, z) => z > 0).Select(a => $"'||({ExpressionLambdaToSql(a, tsc)})||'").ToArray();
+                        if (exp.Arguments[0].NodeType != ExpressionType.Constant) throw new Exception(CoreErrorStrings.Not_Implemented_Expression_ParameterUseConstant(exp,exp.Arguments[0]));
+                        var expArgsHack = exp.Arguments.Count == 2 && exp.Arguments[1].NodeType == ExpressionType.NewArrayInit ?
+                             (exp.Arguments[1] as NewArrayExpression).Expressions : exp.Arguments.Where((a, z) => z > 0);
+                        //3个 {} 时，Arguments 解析出来是分开的
+                        //4个 {} 时，Arguments[1] 只能解析这个出来，然后里面是 NewArray []
+                        var expArgs = expArgsHack.Select(a => $"'||{_common.IsNull(ExpressionLambdaToSql(a, tsc), "''")}||'").ToArray();
                         return string.Format(ExpressionLambdaToSql(exp.Arguments[0], tsc), expArgs);
+                    case "Join": //未通用测试 #405
+                        if (exp.IsStringJoin(out var tolistObjectExp, out var toListMethod, out var toListArgs1))
+                        {
+                            var newToListArgs0 = Expression.Call(tolistObjectExp, toListMethod,
+                                Expression.Lambda(
+                                    Expression.Call(
+                                        typeof(SqlExtExtensions).GetMethod("StringJoinOracleGroupConcat"),
+                                        Expression.Convert(toListArgs1.Body, typeof(object)),
+                                        Expression.Convert(exp.Arguments[0], typeof(object))),
+                                    toListArgs1.Parameters));
+                            var newToListSql = getExp(newToListArgs0);
+                            return newToListSql;
+                        }
+                        break;
                 }
             }
             else
@@ -311,18 +370,25 @@ namespace FreeSql.ShenTong
                     case "StartsWith":
                     case "EndsWith":
                     case "Contains":
+                        var leftLike = exp.Object.NodeType == ExpressionType.MemberAccess ? left : $"({left})";
                         var args0Value = getExp(exp.Arguments[0]);
-                        if (args0Value == "NULL") return $"({left}) IS NULL";
+                        if (args0Value == "NULL") return $"{leftLike} IS NULL";
+                        if (new[] { '%', '_', '[', ']', '*' }.Any(wildcard => args0Value.Contains(wildcard)))
+                        {
+                            if (exp.Method.Name == "StartsWith") return $"strpos({left}, {args0Value}) = 1";
+                            if (exp.Method.Name == "EndsWith") return $"strpos({left}, {args0Value}) = char_length({left})-char_length({args0Value})+1";
+                            return $"strpos({left}, {args0Value}) > 0";
+                        }
                         var likeOpt = "LIKE";
                         if (exp.Arguments.Count > 1)
                         {
                             if (exp.Arguments[1].Type == typeof(bool) ||
-                                exp.Arguments[1].Type == typeof(StringComparison) && getExp(exp.Arguments[0]).Contains("IgnoreCase")) likeOpt = "ILIKE";
+                                exp.Arguments[1].Type == typeof(StringComparison)) likeOpt = "ILIKE";
                         }
-                        if (exp.Method.Name == "StartsWith") return $"({left}) {likeOpt} {(args0Value.EndsWith("'") ? args0Value.Insert(args0Value.Length - 1, "%") : $"(({args0Value})::text || '%')")}";
-                        if (exp.Method.Name == "EndsWith") return $"({left}) {likeOpt} {(args0Value.StartsWith("'") ? args0Value.Insert(1, "%") : $"('%' || ({args0Value})::text)")}";
-                        if (args0Value.StartsWith("'") && args0Value.EndsWith("'")) return $"({left}) {likeOpt} {args0Value.Insert(1, "%").Insert(args0Value.Length, "%")}";
-                        return $"({left}) {likeOpt} ('%' || ({args0Value})::text || '%')";
+                        if (exp.Method.Name == "StartsWith") return $"{leftLike} {likeOpt} {(args0Value.EndsWith("'") ? args0Value.Insert(args0Value.Length - 1, "%") : $"(({args0Value})::text || '%')")}";
+                        if (exp.Method.Name == "EndsWith") return $"{leftLike} {likeOpt} {(args0Value.StartsWith("'") ? args0Value.Insert(1, "%") : $"('%' || ({args0Value})::text)")}";
+                        if (args0Value.StartsWith("'") && args0Value.EndsWith("'")) return $"{leftLike} {likeOpt} {args0Value.Insert(1, "%").Insert(args0Value.Length, "%")}";
+                        return $"{leftLike} {likeOpt} ('%' || ({args0Value})::text || '%')";
                     case "ToLower": return $"lower({left})";
                     case "ToUpper": return $"upper({left})";
                     case "Substring":
@@ -403,6 +469,18 @@ namespace FreeSql.ShenTong
             }
             return null;
         }
+        public override string ExpressionLambdaToSqlCallDateDiff(string memberName, Expression date1, Expression date2, ExpTSC tsc)
+        {
+            Func<Expression, string> getExp = exparg => ExpressionLambdaToSql(exparg, tsc);
+            switch (memberName)
+            {
+                case "TotalDays": return $"datediff('day',{getExp(date2)},{getExp(date1)})";
+                case "TotalHours": return $"datediff('hour',{getExp(date2)},{getExp(date1)})";
+                case "TotalMinutes": return $"datediff('minute',{getExp(date2)},{getExp(date1)})";
+                case "TotalSeconds": return $"datediff('second',{getExp(date2)},{getExp(date1)})";
+            }
+            return null;
+        }
         public override string ExpressionLambdaToSqlCallDateTime(MethodCallExpression exp, ExpTSC tsc)
         {
             Func<Expression, string> getExp = exparg => ExpressionLambdaToSql(exparg, tsc);
@@ -418,10 +496,10 @@ namespace FreeSql.ShenTong
                         var isLeapYearArgs1 = getExp(exp.Arguments[0]);
                         return $"(({isLeapYearArgs1})%4=0 AND ({isLeapYearArgs1})%100<>0 OR ({isLeapYearArgs1})%400=0)";
 
-                    case "Parse": return $"({getExp(exp.Arguments[0])})::timestamp";
+                    case "Parse": return ExpressionConstDateTime(exp.Arguments[0]) ?? $"({getExp(exp.Arguments[0])})::timestamp";
                     case "ParseExact":
                     case "TryParse":
-                    case "TryParseExact": return $"({getExp(exp.Arguments[0])})::timestamp";
+                    case "TryParseExact": return ExpressionConstDateTime(exp.Arguments[0]) ?? $"({getExp(exp.Arguments[0])})::timestamp";
                 }
             }
             else
@@ -430,20 +508,18 @@ namespace FreeSql.ShenTong
                 var args1 = exp.Arguments.Count == 0 ? null : getExp(exp.Arguments[0]);
                 switch (exp.Method.Name)
                 {
-                    case "Add": return $"dateadd('second',{args1},{left})";
                     case "AddDays": return $"dateadd('day',{args1},{left})";
                     case "AddHours": return $"dateadd('hour',{args1},{left})";
                     case "AddMilliseconds": return $"dateadd('second',({args1})/1000,{left})";
                     case "AddMinutes": return $"dateadd('minute',{args1},{left})";
                     case "AddMonths": return $"dateadd('month',{args1},{left})";
-                    case "AddSeconds": return $"dateadd('second', {args1}, {left})";
+                    case "AddSeconds": return $"dateadd('second',{args1},{left})";
                     case "AddTicks": return $"dateadd('second',({args1})/10000000,{left})";
                     case "AddYears": return $"dateadd('year',{args1},{left})";
                     case "Subtract":
                         switch ((exp.Arguments[0].Type.IsNullableType() ? exp.Arguments[0].Type.GetGenericArguments().FirstOrDefault() : exp.Arguments[0].Type).FullName)
                         {
                             case "System.DateTime": return $"datediff('second',{args1},{left})";
-                            case "System.TimeSpan": return $"dateadd('second',({args1})*-1,{left})";
                         }
                         break;
                     case "Equals": return $"({left} = {args1})";
@@ -509,42 +585,6 @@ namespace FreeSql.ShenTong
             }
             return null;
         }
-        public override string ExpressionLambdaToSqlCallTimeSpan(MethodCallExpression exp, ExpTSC tsc)
-        {
-            Func<Expression, string> getExp = exparg => ExpressionLambdaToSql(exparg, tsc);
-            if (exp.Object == null)
-            {
-                switch (exp.Method.Name)
-                {
-                    case "Compare": return $"({getExp(exp.Arguments[0])}-({getExp(exp.Arguments[1])}))";
-                    case "Equals": return $"({getExp(exp.Arguments[0])} = {getExp(exp.Arguments[1])})";
-                    case "FromDays": return $"(({getExp(exp.Arguments[0])})*{60 * 60 * 24})";
-                    case "FromHours": return $"(({getExp(exp.Arguments[0])})*{60 * 60})";
-                    case "FromMilliseconds": return $"(({getExp(exp.Arguments[0])})/1000)";
-                    case "FromMinutes": return $"(({getExp(exp.Arguments[0])})*60)";
-                    case "FromSeconds": return $"({getExp(exp.Arguments[0])})";
-                    case "FromTicks": return $"(({getExp(exp.Arguments[0])})/10000000)";
-                    case "Parse": return $"({getExp(exp.Arguments[0])})::int8";
-                    case "ParseExact":
-                    case "TryParse":
-                    case "TryParseExact": return $"({getExp(exp.Arguments[0])})::int8";
-                }
-            }
-            else
-            {
-                var left = getExp(exp.Object);
-                var args1 = exp.Arguments.Count == 0 ? null : getExp(exp.Arguments[0]);
-                switch (exp.Method.Name)
-                {
-                    case "Add": return $"({left}+{args1})";
-                    case "Subtract": return $"({left}-({args1}))";
-                    case "Equals": return $"({left} = {args1})";
-                    case "CompareTo": return $"({left}-({args1}))";
-                    case "ToString": return $"({left})::text";
-                }
-            }
-            return null;
-        }
         public override string ExpressionLambdaToSqlCallConvert(MethodCallExpression exp, ExpTSC tsc)
         {
             Func<Expression, string> getExp = exparg => ExpressionLambdaToSql(exparg, tsc);
@@ -552,10 +592,28 @@ namespace FreeSql.ShenTong
             {
                 switch (exp.Method.Name)
                 {
-                    case "ToBoolean": return $"(({getExp(exp.Arguments[0])})::text not in ('0','false','f','no'))";
+                    case "ToBoolean":
+                        var boolstr = getExp(exp.Arguments[0]);
+                        switch (boolstr)
+                        {
+                            case "0":
+                            case "'0'":
+                            case "false":
+                            case "'f'":
+                            case "'no'":
+                                return "'f'::bool";
+                            case "1":
+                            case "'1'":
+                            case "true":
+                            case "'t'":
+                            case "'yes'":
+                                return "'t'::bool";
+                            default:
+                                return $"(({boolstr})::varchar not in ('0','false','f','no'))";
+                        }
                     case "ToByte": return $"({getExp(exp.Arguments[0])})::int2";
                     case "ToChar": return $"substr(({getExp(exp.Arguments[0])})::char, 1, 1)";
-                    case "ToDateTime": return $"({getExp(exp.Arguments[0])})::timestamp";
+                    case "ToDateTime": return ExpressionConstDateTime(exp.Arguments[0]) ?? $"({getExp(exp.Arguments[0])})::timestamp";
                     case "ToDecimal": return $"({getExp(exp.Arguments[0])})::numeric";
                     case "ToDouble": return $"({getExp(exp.Arguments[0])})::float8";
                     case "ToInt16": return $"({getExp(exp.Arguments[0])})::int2";

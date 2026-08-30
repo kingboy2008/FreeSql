@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 using FreeSql.Tests.DataContext.SqlServer;
 using System;
 using System.Collections.Generic;
@@ -30,18 +30,37 @@ namespace FreeSql.Tests.SqlServer
             public DateTime CreateTime { get; set; }
         }
 
+        abstract class EntityBase
+        {
+            public int Id { get; set; }
+        }
+        class SysDictionnary : EntityBase
+        {
+            public string Name { get; set; }
+        }
+        [Fact]
+        public void AsType()
+        {
+            var fsql = g.sqlserver;
+
+            var delsid = new[] { 1, 2, 3, 4 }; 
+            var sqlsss22222 = fsql.Delete<object>().AsType(typeof(SysDictionnary))
+                .Where(o => delsid.Contains((o as EntityBase).Id))
+                .ToSql();
+        }
+
         [Fact]
         public void Dywhere()
         {
             Assert.Null(g.sqlserver.Delete<Topic>().ToSql());
             var sql = g.sqlserver.Delete<Topic>(new[] { 1, 2 }).ToSql();
-            Assert.Equal("DELETE FROM [tb_topic22211] WHERE ([Id] = 1 OR [Id] = 2)", sql);
+            Assert.Equal("DELETE FROM [tb_topic22211] WHERE ([Id] IN (1,2))", sql);
 
             sql = g.sqlserver.Delete<Topic>(new Topic { Id = 1, Title = "test" }).ToSql();
             Assert.Equal("DELETE FROM [tb_topic22211] WHERE ([Id] = 1)", sql);
 
             sql = g.sqlserver.Delete<Topic>(new[] { new Topic { Id = 1, Title = "test" }, new Topic { Id = 2, Title = "test" } }).ToSql();
-            Assert.Equal("DELETE FROM [tb_topic22211] WHERE ([Id] = 1 OR [Id] = 2)", sql);
+            Assert.Equal("DELETE FROM [tb_topic22211] WHERE ([Id] IN (1,2))", sql);
 
             sql = g.sqlserver.Delete<Topic>(new { id = 1 }).ToSql();
             Assert.Equal("DELETE FROM [tb_topic22211] WHERE ([Id] = 1)", sql);
@@ -105,13 +124,13 @@ namespace FreeSql.Tests.SqlServer
         {
             Assert.Null(g.sqlserver.Delete<Topic>().ToSql());
             var sql = g.sqlserver.Delete<Topic>(new[] { 1, 2 }).AsTable(a => "tb_topic22211AsTable").ToSql();
-            Assert.Equal("DELETE FROM [tb_topic22211AsTable] WHERE ([Id] = 1 OR [Id] = 2)", sql);
+            Assert.Equal("DELETE FROM [tb_topic22211AsTable] WHERE ([Id] IN (1,2))", sql);
 
             sql = g.sqlserver.Delete<Topic>(new Topic { Id = 1, Title = "test" }).AsTable(a => "tb_topic22211AsTable").ToSql();
             Assert.Equal("DELETE FROM [tb_topic22211AsTable] WHERE ([Id] = 1)", sql);
 
             sql = g.sqlserver.Delete<Topic>(new[] { new Topic { Id = 1, Title = "test" }, new Topic { Id = 2, Title = "test" } }).AsTable(a => "tb_topic22211AsTable").ToSql();
-            Assert.Equal("DELETE FROM [tb_topic22211AsTable] WHERE ([Id] = 1 OR [Id] = 2)", sql);
+            Assert.Equal("DELETE FROM [tb_topic22211AsTable] WHERE ([Id] IN (1,2))", sql);
 
             sql = g.sqlserver.Delete<Topic>(new { id = 1 }).AsTable(a => "tb_topic22211AsTable").ToSql();
             Assert.Equal("DELETE FROM [tb_topic22211AsTable] WHERE ([Id] = 1)", sql);

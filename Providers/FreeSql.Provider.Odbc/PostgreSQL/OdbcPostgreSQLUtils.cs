@@ -35,6 +35,7 @@ namespace FreeSql.Odbc.PostgreSQL
             { typeof(ushort).FullName, a => int.Parse(string.Concat(a)) }, { typeof(ushort[]).FullName, a => getParamterArrayValue(typeof(int), a, 0) }, { typeof(ushort?[]).FullName, a => getParamterArrayValue(typeof(int?), a, null) },
             { typeof(byte).FullName, a => short.Parse(string.Concat(a)) }, { typeof(byte[]).FullName, a => getParamterArrayValue(typeof(short), a, 0) }, { typeof(byte?[]).FullName, a => getParamterArrayValue(typeof(short?), a, null) },
             { typeof(sbyte).FullName, a => short.Parse(string.Concat(a)) }, { typeof(sbyte[]).FullName, a => getParamterArrayValue(typeof(short), a, 0) }, { typeof(sbyte?[]).FullName, a => getParamterArrayValue(typeof(short?), a, null) },
+            { typeof(char).FullName, a => string.Concat(a).Replace('\0', ' ').ToCharArray().FirstOrDefault() },
         };
         static object getParamterValue(Type type, object value, int level = 0)
         {
@@ -90,7 +91,7 @@ namespace FreeSql.Odbc.PostgreSQL
             });
 
         public override string FormatSql(string sql, params object[] args) => sql?.FormatOdbcPostgreSQL(args);
-        public override string QuoteSqlName(params string[] name)
+        public override string QuoteSqlNameAdapter(params string[] name)
         {
             if (name.Length == 1)
             {
@@ -119,22 +120,17 @@ namespace FreeSql.Odbc.PostgreSQL
         public override string Now => "current_timestamp";
         public override string NowUtc => "(current_timestamp at time zone 'UTC')";
 
-        public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
-        public override string QuoteReadColumn(Type type, Type mapType, string columnName) => columnName;
+        public override string QuoteWriteParamterAdapter(Type type, string paramterName) => paramterName;
+        protected override string QuoteReadColumnAdapter(Type type, Type mapType, string columnName) => columnName;
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);
             value = getParamterValue(type, value);
             var type2 = value.GetType();
             if (type2 == typeof(byte[])) return $"'\\x{CommonUtils.BytesSqlRaw(value as byte[])}'";
-            if (type2 == typeof(TimeSpan) || type2 == typeof(TimeSpan?))
-            {
-                var ts = (TimeSpan)value;
-                return $"'{Math.Min(24, (int)Math.Floor(ts.TotalHours))}:{ts.Minutes}:{ts.Seconds}'";
-            }
-            else if (value is Array)
+            if (value is Array)
             {
                 var valueArr = value as Array;
                 var eleType = type2.GetElementType();
@@ -144,7 +140,7 @@ namespace FreeSql.Odbc.PostgreSQL
                 {
                     var item = valueArr.GetValue(a);
                     if (a > 0) sb.Append(",");
-                    sb.Append(GetNoneParamaterSqlValue(specialParams, eleType, item));
+                    sb.Append(GetNoneParamaterSqlValue(specialParams, specialParamFlag, col, eleType, item));
                 }
                 sb.Append("]");
                 var dbinfo = _orm.CodeFirst.GetDbInfo(type);

@@ -1,4 +1,6 @@
 ﻿using FreeSql;
+using FreeSql.DataAnnotations;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -26,11 +28,22 @@ public class RoleUser1 : BaseEntity<RoleUser1>
     public User1 User1 { get; set; }
 }
 
+public class IdentityUser1
+{
+    [Column(IsIdentity = true)]
+    public int Id { get; set; }
+    [MaxLength(32)]
+    public string Username { get; set; }
+    [MaxLength(64), Column(InsertValueSql = "'defaultname'")]
+    public string Nickname { get; set; }
+}
+
 public class User1 : BaseEntity<User1, Guid>
 {
     public int GroupId { get; set; }
     public UserGroup Group { get; set; }
 
+    public string[] Tags { get; set; }
     public virtual List<Role> Roles { get; set; }
 
     /// <summary>
@@ -54,6 +67,37 @@ public class User1 : BaseEntity<User1, Guid>
     /// <summary>
     /// 描述
     /// </summary>
-    [MaxLength(4000)]
+    [MaxLength(2000)]
     public string Description { get; set; }
+}
+
+public class IdentityTable
+{
+    [Column(IsIdentity = true, IsPrimary = true)]
+    public int id { get; set; }
+
+    public string name { get; set; }
+
+    [JsonProperty, Column(DbType = "datetime")]
+    public DateTime? create_time { get; set; }
+}
+
+[Table(Name = "Order1_1")]
+public class Order1
+{
+    [Column(IsIdentity = true, IsPrimary = true)]
+    public int id { get; set; }
+
+    public string name { get; set; }
+
+    public decimal price { get; set; }
+
+    [Column(MapType = typeof(int))]
+    public OrderStatus status { get; set; }
+    public enum OrderStatus
+    {
+        Pending = 0,
+        Completed = 1,
+        Cancelled = 2
+    }
 }

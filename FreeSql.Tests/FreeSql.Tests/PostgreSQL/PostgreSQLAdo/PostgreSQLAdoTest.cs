@@ -1,4 +1,5 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
+using Npgsql;
 using System;
 using Xunit;
 
@@ -10,6 +11,14 @@ namespace FreeSql.Tests.PostgreSQL
         public void Pool()
         {
             var t1 = g.pgsql.Ado.MasterPool.StatisticsFullily;
+
+            var connectionString = "Host=127.0.0.1;Port=5432;Username=postgres;Password=123456;Database=tedb;ArrayNullabilityMode=Always;Pooling=true;Maximum Pool Size=21";
+            using (var t2 = new FreeSqlBuilder()
+                .UseConnectionFactory(FreeSql.DataType.PostgreSQL, () => new NpgsqlConnection(connectionString))
+                .Build())
+            {
+                Assert.Equal(connectionString, t2.Ado.ConnectionString);
+            }
         }
 
         [Fact]
@@ -18,6 +27,11 @@ namespace FreeSql.Tests.PostgreSQL
             var t2 = g.pgsql.Ado.SlavePools.Count;
         }
 
+        [Fact]
+        public void ExecuteTest()
+        {
+            Assert.True(g.pgsql.Ado.ExecuteConnectTest());
+        }
         [Fact]
         public void ExecuteReader()
         {
@@ -49,6 +63,8 @@ namespace FreeSql.Tests.PostgreSQL
             var t4 = g.pgsql.Ado.Query<(int, string, string)>("select * from xxx");
 
             var t5 = g.pgsql.Ado.Query<dynamic>("select * from xxx");
+
+            var t6 = g.pgsql.Ado.Query<xxx>("select * from xxx where id in @ids", new { ids = new[] { "1", "2", "3" } });
         }
 
         [Fact]

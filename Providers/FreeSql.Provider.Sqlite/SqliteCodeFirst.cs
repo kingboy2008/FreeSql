@@ -33,11 +33,12 @@ namespace FreeSql.Sqlite
                 { typeof(float).FullName, CsToDb.New(DbType.Single, "float","float NOT NULL", false, false, 0) },{ typeof(float?).FullName, CsToDb.New(DbType.Single, "float","float", false, true, null) },
                 { typeof(decimal).FullName, CsToDb.New(DbType.Decimal, "decimal", "decimal(10,2) NOT NULL", false, false, 0) },{ typeof(decimal?).FullName, CsToDb.New(DbType.Decimal, "decimal", "decimal(10,2)", false, true, null) },
 
-                { typeof(TimeSpan).FullName, CsToDb.New(DbType.Time, "bigint","bigint NOT NULL", false, false, 0) },{ typeof(TimeSpan?).FullName, CsToDb.New(DbType.Time, "bigint", "bigint",false, true, null) },
+                { typeof(TimeSpan).FullName, CsToDb.New(DbType.Time, "decimal","decimal(18,3) NOT NULL", false, false, 0) },{ typeof(TimeSpan?).FullName, CsToDb.New(DbType.Time, "decimal", "decimal(18,3)",false, true, null) },
                 { typeof(DateTime).FullName, CsToDb.New(DbType.DateTime, "datetime", "datetime NOT NULL", false, false, new DateTime(1970,1,1)) },{ typeof(DateTime?).FullName, CsToDb.New(DbType.DateTime, "datetime", "datetime", false, true, null) },
 
                 { typeof(byte[]).FullName, CsToDb.New(DbType.Binary, "blob", "blob", false, null, new byte[0]) },
                 { typeof(string).FullName, CsToDb.New(DbType.String, "nvarchar", "nvarchar(255)", false, null, "") },
+                { typeof(char).FullName, CsToDb.New(DbType.AnsiString, "char", "char(1)", false, null, '\0') },
 
                 { typeof(Guid).FullName, CsToDb.New(DbType.Guid, "character", "character(36) NOT NULL", false, false, Guid.Empty) },{ typeof(Guid?).FullName, CsToDb.New(DbType.Guid, "character", "character(36)", false, true, null) },
             };
@@ -70,16 +71,16 @@ namespace FreeSql.Sqlite
             return null;
         }
 
-        protected override string GetComparisonDDLStatements(params TypeAndName[] objects)
+        protected override string GetComparisonDDLStatements(params TypeSchemaAndName[] objects)
         {
             var sb = new StringBuilder();
             var sbDeclare = new StringBuilder();
             foreach (var obj in objects)
             {
                 if (sb.Length > 0) sb.Append("\r\n");
-                var tb = _commonUtils.GetTableByEntity(obj.entityType);
-                if (tb == null) throw new Exception($"类型 {obj.entityType.FullName} 不可迁移");
-                if (tb.Columns.Any() == false) throw new Exception($"类型 {obj.entityType.FullName} 不可迁移，可迁移属性0个");
+                var tb = obj.tableSchema;
+                if (tb == null) throw new Exception(CoreErrorStrings.S_Type_IsNot_Migrable(obj.tableSchema.Type.FullName));
+                if (tb.Columns.Any() == false) throw new Exception(CoreErrorStrings.S_Type_IsNot_Migrable_0Attributes(obj.tableSchema.Type.FullName));
                 var tbname = _commonUtils.SplitTableName(tb.DbName);
                 if (tbname?.Length == 1) tbname = new[] { "main", tbname[0] };
 
@@ -135,7 +136,7 @@ namespace FreeSql.Sqlite
                         {
                             sb.Append("CREATE ");
                             if (uk.IsUnique) sb.Append("UNIQUE ");
-                            sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(tbname[1]).Append("(");
+                            sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(tbname[0], ReplaceIndexName(uk.Name, tbname[1]))).Append(" ON ").Append(tbname[1]).Append("(");
                             foreach (var tbcol in uk.Columns)
                             {
                                 sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -211,8 +212,8 @@ namespace FreeSql.Sqlite
                     foreach (var dbIndex in dbIndexes)
                     {
                         if (string.Concat(dbIndex[3]) == "pk") continue;
-                        var dbIndexesColumns = _orm.Ado.ExecuteArray(CommandType.Text, $"PRAGMA {_commonUtils.QuoteSqlName(tbtmp[0])}.INDEX_INFO({dbIndex[1]})");
-                        var dbIndexesSql = string.Concat(_orm.Ado.ExecuteScalar(CommandType.Text, $" SELECT sql FROM sqlite_master WHERE name = '{dbIndex[1]}'"));
+                        var dbIndexesColumns = _orm.Ado.ExecuteArray(CommandType.Text, $"PRAGMA {_commonUtils.QuoteSqlName(tbtmp[0])}.INDEX_INFO(\"{dbIndex[1]}\")");
+                        var dbIndexesSql = string.Concat(_orm.Ado.ExecuteScalar(CommandType.Text, $" SELECT sql FROM {_commonUtils.QuoteSqlName(tbtmp[0])}.sqlite_master WHERE name = '{dbIndex[1]}'"));
                         foreach (var dbcolumn in dbIndexesColumns)
                         {
                             var dbcolumnName = string.Concat(dbcolumn[2]);
@@ -223,7 +224,8 @@ namespace FreeSql.Sqlite
                     foreach (var uk in tb.Indexes)
                     {
                         if (string.IsNullOrEmpty(uk.Name) || uk.Columns.Any() == false) continue;
-                        var dsukfind1 = dsuk.Where(a => string.Compare(a[1], uk.Name, true) == 0).ToArray();
+                        var ukname = ReplaceIndexName(uk.Name, tbname[1]);
+                        var dsukfind1 = dsuk.Where(a => string.Compare(a[1], ukname, true) == 0).ToArray();
                         if (dsukfind1.Any() == false || dsukfind1.Length != uk.Columns.Length || dsukfind1.Where(a => (a[3] == "1") == uk.IsUnique && uk.Columns.Where(b => string.Compare(b.Column.Attribute.Name, a[0], true) == 0 && (a[2] == "1") == b.IsDesc).Any()).Count() != uk.Columns.Length)
                             istmpatler = true;
                     }
@@ -236,7 +238,6 @@ namespace FreeSql.Sqlite
 
                 //创建临时表，数据导进临时表，然后删除原表，将临时表改名为原表名
                 var tablename = tboldname == null ? _commonUtils.QuoteSqlName(tbname[0], tbname[1]) : _commonUtils.QuoteSqlName(tboldname[0], tboldname[1]);
-                var tablenameOnlyTb = tboldname == null ? tbname[1] : tboldname[1];
                 var tmptablename = _commonUtils.QuoteSqlName(tbname[0], $"_FreeSqlTmp_{tbname[1]}");
                 //创建临时表
                 isIndent = false;
@@ -290,7 +291,7 @@ namespace FreeSql.Sqlite
                 {
                     sb.Append("CREATE ");
                     if (uk.IsUnique) sb.Append("UNIQUE ");
-                    sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON \"").Append(tablenameOnlyTb).Append("\"(");
+                    sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(tbname[0], ReplaceIndexName(uk.Name, tbname[1]))).Append(" ON \"").Append(tbname[1]).Append("\"(");
                     foreach (var tbcol in uk.Columns)
                     {
                         sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));

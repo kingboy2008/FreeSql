@@ -1,4 +1,5 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
+using FreeSql.PostgreSQL;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,8 +15,16 @@ namespace FreeSql.Tests.PostgreSQL
         public void InsertOrUpdate_OnlyPrimary()
         {
             fsql.Delete<tbiou01>().Where("1=1").ExecuteAffrows();
-            var iou = fsql.InsertOrUpdate<tbiou01>().SetSource(new tbiou01 { id = 1 });
+
+            var iou = fsql.InsertOrUpdate<tbiou01>().SetSource(fsql.Select<tbiou022>().ToSql(a => new { id = a.id + 1 }, FieldAliasOptions.AsProperty));
             var sql = iou.ToSql();
+            Assert.Equal(@"INSERT INTO ""tbiou01""(""id"") 
+SELECT (a.""id"" + 1) ""id"" 
+FROM ""tbiou022"" a
+ON CONFLICT(""id"") DO NOTHING", sql);
+
+            iou = fsql.InsertOrUpdate<tbiou01>().SetSource(new tbiou01 { id = 1 });
+            sql = iou.ToSql();
             Assert.Equal(@"INSERT INTO ""tbiou01""(""id"") VALUES(1)
 ON CONFLICT(""id"") DO NOTHING", sql);
             Assert.Equal(1, iou.ExecuteAffrows());
@@ -90,10 +99,37 @@ ON CONFLICT(""id"") DO UPDATE SET
             var lst = fsql.Select<tbiou02>().Where(a => new[] { 1, 2, 3, 4 }.Contains(a.id)).ToList();
             Assert.Equal(4, lst.Where(a => a.name == "00" + a.id).Count());
         }
+
         class tbiou02
         {
             public int id { get; set; }
             public string name { get; set; }
+        }
+
+        [Fact]
+        public void InsertOrUpdate_TempPrimary()
+        {
+            fsql.Delete<tbiou_temp>().Where("1=1").ExecuteAffrows();
+            var iou = fsql.InsertOrUpdate<tbiou_temp>().SetSource(new tbiou_temp { name = "01", description = "testval" }, m => new { m.name });
+            var sql = iou.ToSql();
+            Assert.Equal(@"INSERT INTO ""tbiou_temp""(""name"", ""description"") VALUES('01', 'testval')
+ON CONFLICT(""name"") DO UPDATE SET
+""description"" = EXCLUDED.""description""", sql);
+            Assert.Equal(1, iou.ExecuteAffrows());
+
+            var iou2 = fsql.InsertOrUpdate<tbiou_temp>().SetSource(new tbiou_temp { name = "01", description = "testval2" }, m => new { m.name }).ExecuteAffrows();
+            Assert.Equal(1, iou2);
+
+        }
+
+        [Index("uix_tbiou_temp_name", "name", true)]
+        class tbiou_temp
+        {
+            [Column(IsPrimary = true, IsIdentity = true)]
+            public int id { get; set; }
+
+            public string name { get; set; }
+            public string description { get; set; }
         }
         [Fact]
         public void InsertOrUpdate_OnePrimaryAndIdentity()
@@ -194,9 +230,9 @@ ON CONFLICT(""id1"", ""id2"") DO UPDATE SET
 ""name"" = EXCLUDED.""name""", sql);
             Assert.Equal(1, iou.ExecuteAffrows());
 
-            iou = fsql.InsertOrUpdate<tbiou03>().SetSource(new tbiou03 { id1 = 1, id2 = "02", name = "011" });
+            iou = fsql.InsertOrUpdate<tbiou03>().SetSource(new tbiou03 { id1 = 1, id2 = "01", name = "011" });
             sql = iou.ToSql();
-            Assert.Equal(@"INSERT INTO ""tbiou03""(""id1"", ""id2"", ""name"") VALUES(1, '02', '011')
+            Assert.Equal(@"INSERT INTO ""tbiou03""(""id1"", ""id2"", ""name"") VALUES(1, '01', '011')
 ON CONFLICT(""id1"", ""id2"") DO UPDATE SET
 ""name"" = EXCLUDED.""name""", sql);
             Assert.Equal(1, iou.ExecuteAffrows());
@@ -287,6 +323,42 @@ ON CONFLICT(""id"") DO UPDATE SET
             public int version { get; set; }
             [Column(CanUpdate = false, ServerTime = DateTimeKind.Local)]
             public DateTime CreateTime { get; set; }
+        }
+
+        class tbiou05
+        {
+            [Column(IsIdentity = true, IsPrimary = true)]
+            public int id { get; set; }
+            public string name { get; set; }
+
+            public byte[] data { get; set; }
+        }
+
+        [Fact]
+        public void InsertOrUpdate_Blob()
+        {
+            var pgsql = g.opengauss;
+            (pgsql as IPostgreSQLProviderOptions).UseMergeInto = true;
+            var iou = pgsql.InsertOrUpdate<tbiou05>().SetSource(new tbiou05 { name = "01", data = null, id = 1 });
+            var sql = iou.ToSql();
+            Assert.Equal(@"MERGE INTO ""tbiou05"" t1 
+USING (SELECT 1 as ""id"", '01' as ""name"", NULL::bytea as ""data"" ) t2 ON (t1.""id"" = t2.""id"") 
+WHEN MATCHED THEN 
+  update set ""name"" = t2.""name"", ""data"" = t2.""data"" 
+WHEN NOT MATCHED THEN 
+  insert (""id"", ""name"", ""data"") 
+  values (t2.""id"", t2.""name"", t2.""data"");", sql);
+
+            var tbiou1 = new tbiou05 { id = 1, name = "01", data = new byte[] { 1, 2, 3, 4, 5, 6 } };
+            var iou2 = pgsql.InsertOrUpdate<tbiou05>().SetSource(tbiou1);
+            var sql2 = iou2.ToSql();
+            Assert.Equal(@"MERGE INTO ""tbiou05"" t1 
+USING (SELECT 1 as ""id"", '01' as ""name"", '\x010203040506'::bytea as ""data"" ) t2 ON (t1.""id"" = t2.""id"") 
+WHEN MATCHED THEN 
+  update set ""name"" = t2.""name"", ""data"" = t2.""data"" 
+WHEN NOT MATCHED THEN 
+  insert (""id"", ""name"", ""data"") 
+  values (t2.""id"", t2.""name"", t2.""data"");", sql2);
         }
     }
 }

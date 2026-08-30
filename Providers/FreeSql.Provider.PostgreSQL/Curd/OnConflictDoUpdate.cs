@@ -6,6 +6,7 @@ using System.Data;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FreeSql.PostgreSQL.Curd
@@ -17,26 +18,27 @@ namespace FreeSql.PostgreSQL.Curd
         internal PostgreSQLUpdate<T1> _pgsqlUpdate => _pgsqlUpdatePriv ?? 
             (_pgsqlUpdatePriv = new PostgreSQLUpdate<T1>(_pgsqlInsert.InternalOrm, _pgsqlInsert.InternalCommonUtils, _pgsqlInsert.InternalCommonExpression, null) { InternalTableAlias = "EXCLUDED" }
                 .NoneParameter().SetSource(_pgsqlInsert.InternalSource) as PostgreSQLUpdate<T1>);
-        ColumnInfo[] _columns;
+        internal ColumnInfo[] _tempPrimarys;
         bool _doNothing;
 
         public OnConflictDoUpdate(IInsert<T1> insert, Expression<Func<T1, object>> columns = null)
         {
             _pgsqlInsert = insert as PostgreSQLInsert<T1>;
-            if (_pgsqlInsert == null) throw new Exception("OnConflictDoUpdate 是 FreeSql.Provider.PostgreSQL 特有的功能");
+            if (_pgsqlInsert == null) throw new Exception(CoreErrorStrings.S_Features_Unique("OnConflictDoUpdate", "PostgreSQL"));
+            if (_pgsqlInsert._noneParameterFlag == "c") _pgsqlInsert._noneParameterFlag = "cu";
 
             if (columns != null)
             {
                 var colsList = new List<ColumnInfo>();
-                var cols = _pgsqlInsert.InternalCommonExpression.ExpressionSelectColumns_MemberAccess_New_NewArrayInit(null, columns?.Body, false, null).ToDictionary(a => a, a => true);
+                var cols = _pgsqlInsert.InternalCommonExpression.ExpressionSelectColumns_MemberAccess_New_NewArrayInit(null, null, columns?.Body, false, null).ToDictionary(a => a, a => true);
                 foreach (var col in _pgsqlInsert.InternalTable.Columns.Values)
                     if (cols.ContainsKey(col.Attribute.Name))
                         colsList.Add(col);
-                _columns = colsList.ToArray();
+                _tempPrimarys = colsList.ToArray();
             }
-            if (_columns == null || _columns.Any() == false)
-                _columns = _pgsqlInsert.InternalTable.Primarys;
-            if (_columns.Any() == false) throw new Exception("OnConflictDoUpdate 功能要求实体类必须设置 IsPrimary 属性");
+            if (_tempPrimarys == null || _tempPrimarys.Any() == false)
+                _tempPrimarys = _pgsqlInsert.InternalTable.Primarys;
+            if (_tempPrimarys.Any() == false) throw new Exception(CoreErrorStrings.S_OnConflictDoUpdate_MustIsPrimary);
         }
 
         protected void ClearData()
@@ -94,10 +96,10 @@ namespace FreeSql.PostgreSQL.Curd
         {
             var sb = new StringBuilder();
             sb.Append(_pgsqlInsert.ToSql()).Append("\r\nON CONFLICT(");
-            for (var a = 0; a < _columns.Length; a++)
+            for (var a = 0; a < _tempPrimarys.Length; a++)
             {
                 if (a > 0) sb.Append(", ");
-                sb.Append(_pgsqlInsert.InternalCommonUtils.QuoteSqlName(_columns[a].Attribute.Name));
+                sb.Append(_pgsqlInsert.InternalCommonUtils.QuoteSqlName(_tempPrimarys[a].Attribute.Name));
             }
             if (_doNothing)
             {
@@ -107,6 +109,7 @@ namespace FreeSql.PostgreSQL.Curd
             {
                 sb.Append(") DO UPDATE SET\r\n");
 
+                if (_pgsqlUpdate._tempPrimarys.Any() == false) _pgsqlUpdate._tempPrimarys = _tempPrimarys;
                 var sbSetEmpty = _pgsqlUpdate.InternalSbSet.Length == 0;
                 var sbSetIncrEmpty = _pgsqlUpdate.InternalSbSetIncr.Length == 0;
                 if (sbSetEmpty == false || sbSetIncrEmpty == false)
@@ -123,16 +126,23 @@ namespace FreeSql.PostgreSQL.Curd
 
                         if (colidx > 0) sb.Append(", \r\n");
 
-                        if (col.Attribute.IsVersion == true)
+                        if (col.Attribute.IsVersion == true && col.Attribute.MapType != typeof(byte[]))
                         {
                             var field = _pgsqlInsert.InternalCommonUtils.QuoteSqlName(col.Attribute.Name);
                             sb.Append(field).Append(" = ").Append(_pgsqlInsert.InternalCommonUtils.QuoteSqlName(_pgsqlInsert.InternalTable.DbName)).Append(".").Append(field).Append(" + 1");
                         }
                         else if (_pgsqlInsert.InternalIgnore.ContainsKey(col.Attribute.Name))
                         {
-                            var caseWhen = _pgsqlUpdate.InternalWhereCaseSource(col.CsName, sqlval => sqlval).Trim();
-                            sb.Append(caseWhen);
-                            if (caseWhen.EndsWith(" END")) _pgsqlUpdate.InternalToSqlCaseWhenEnd(sb, col);
+                            if (string.IsNullOrEmpty(col.DbUpdateValue) == false)
+                            {
+                                sb.Append(_pgsqlInsert.InternalCommonUtils.QuoteSqlName(col.Attribute.Name)).Append(" = ").Append(col.DbUpdateValue);
+                            }
+                            else
+                            {
+                                var caseWhen = _pgsqlUpdate.InternalWhereCaseSource(col.CsName, sqlval => sqlval).Trim();
+                                sb.Append(caseWhen);
+                                if (caseWhen.EndsWith(" END")) _pgsqlUpdate.InternalToSqlCaseWhenEnd(sb, col);
+                            }
                         }
                         else
                         {
@@ -158,7 +168,7 @@ namespace FreeSql.PostgreSQL.Curd
             Exception exception = null;
             try
             {
-                ret = _pgsqlInsert.InternalOrm.Ado.ExecuteNonQuery(_pgsqlInsert.InternalConnection, _pgsqlInsert.InternalTransaction, CommandType.Text, sql, _pgsqlInsert.InternalParams);
+                ret = _pgsqlInsert.InternalOrm.Ado.ExecuteNonQuery(_pgsqlInsert.InternalConnection, _pgsqlInsert.InternalTransaction, CommandType.Text, sql, _pgsqlInsert._commandTimeout, _pgsqlInsert.InternalParams);
             }
             catch (Exception ex)
             {
@@ -176,7 +186,7 @@ namespace FreeSql.PostgreSQL.Curd
 
 #if net40
 #else
-        async public Task<long> ExecuteAffrowsAsync()
+        async public Task<long> ExecuteAffrowsAsync(CancellationToken cancellationToken = default)
         {
             var sql = this.ToSql();
             if (string.IsNullOrEmpty(sql)) return 0;
@@ -187,7 +197,7 @@ namespace FreeSql.PostgreSQL.Curd
             Exception exception = null;
             try
             {
-                ret = await _pgsqlInsert.InternalOrm.Ado.ExecuteNonQueryAsync(_pgsqlInsert.InternalConnection, _pgsqlInsert.InternalTransaction, CommandType.Text, sql, _pgsqlInsert.InternalParams);
+                ret = await _pgsqlInsert.InternalOrm.Ado.ExecuteNonQueryAsync(_pgsqlInsert.InternalConnection, _pgsqlInsert.InternalTransaction, CommandType.Text, sql, _pgsqlInsert._commandTimeout, _pgsqlInsert.InternalParams, cancellationToken);
             }
             catch (Exception ex)
             {

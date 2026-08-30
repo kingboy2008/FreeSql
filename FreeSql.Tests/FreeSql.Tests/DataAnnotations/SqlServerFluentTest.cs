@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 using FreeSql.Tests.DataContext.SqlServer;
 using System;
 using System.Data.SqlClient;
@@ -41,16 +41,16 @@ namespace FreeSql.Tests.DataAnnotations
         {
             g.sqlserver.CodeFirst
                 //.ConfigEntity<TestFluenttb1>(a => {
-                //	a.Name("xxdkdkdk1");
-                //	a.Property(b => b.Id).Name("Id22").IsIdentity(true);
-                //	a.Property(b => b.name).DbType("varchar(100)").IsNullable(true);
+                //    a.Name("xxdkdkdk1");
+                //    a.Property(b => b.Id).Name("Id22").IsIdentity(true);
+                //    a.Property(b => b.name).DbType("varchar(100)").IsNullable(true);
                 //})
 
                 .ConfigEntity(typeof(TestFluenttb1), a =>
                 {
                     a.Name("xxdkdkdk1222");
                     a.Property("Id").Name("Id22dd").IsIdentity(true);
-                    a.Property("Name").DbType("varchar(101)").IsNullable(true);
+                    a.Property("Name").Name("Name").DbType("varchar(101)").IsNullable(true);
                 })
 
                 .ConfigEntity<TestFluenttb2>(a =>

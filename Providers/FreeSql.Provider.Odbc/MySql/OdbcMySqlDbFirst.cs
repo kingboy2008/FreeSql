@@ -26,8 +26,8 @@ namespace FreeSql.Odbc.MySql
         public int GetDbType(DbColumnInfo column) => (int)GetOdbcType(column);
         OdbcType GetOdbcType(DbColumnInfo column)
         {
-            var is_unsigned = column.DbTypeTextFull.ToLower().EndsWith(" unsigned");
-            switch (column.DbTypeText.ToLower())
+            var is_unsigned = column.DbTypeTextFull?.ToLower().EndsWith(" unsigned") == true;
+            switch (column.DbTypeText?.ToLower())
             {
                 case "bit": return OdbcType.Bit;
 
@@ -114,14 +114,48 @@ namespace FreeSql.Odbc.MySql
             return ds.Select(a => a.FirstOrDefault()?.ToString()).ToList();
         }
 
-        public List<DbTableInfo> GetTablesByDatabase(params string[] database2)
+        public bool ExistsTable(string name, bool ignoreCase)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            var tbname = _commonUtils.SplitTableName(name);
+            if (tbname?.Length == 1)
+            {
+                var database = "";
+                using (var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5)))
+                {
+                    database = conn.Value.Database;
+                }
+                tbname = new[] { database, tbname[0] };
+            }
+            if (ignoreCase) tbname = tbname.Select(a => a.ToLower()).ToArray();
+            var sql = $" SELECT 1 FROM information_schema.TABLES WHERE {(ignoreCase ? "lower(table_schema)" : "table_schema")} = {_commonUtils.FormatSql("{0}", tbname[0])} and {(ignoreCase ? "lower(table_name)" : "table_name")} = {_commonUtils.FormatSql("{0}", tbname[1])}";
+            return string.Concat(_orm.Ado.ExecuteScalar(CommandType.Text, sql)) == "1";
+        }
+
+        public DbTableInfo GetTableByName(string name, bool ignoreCase = true) => GetTables(null, name, ignoreCase)?.FirstOrDefault();
+        public List<DbTableInfo> GetTablesByDatabase(params string[] database) => GetTables(database, null, false);
+
+        public List<DbTableInfo> GetTables(string[] database, string tablename, bool ignoreCase)
         {
             var loc1 = new List<DbTableInfo>();
-            var loc2 = new Dictionary<string, DbTableInfo>();
-            var loc3 = new Dictionary<string, Dictionary<string, DbColumnInfo>>();
-            var database = database2?.ToArray();
-
-            if (database == null || database.Any() == false)
+            var loc2 = new Dictionary<string, DbTableInfo>(StringComparer.CurrentCultureIgnoreCase);
+            var loc3 = new Dictionary<string, Dictionary<string, DbColumnInfo>>(StringComparer.CurrentCultureIgnoreCase);
+            string[] tbname = null;
+            if (string.IsNullOrEmpty(tablename) == false)
+            {
+                tbname = _commonUtils.SplitTableName(tablename);
+                if (tbname?.Length == 1)
+                {
+                    using (var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5)))
+                    {
+                        if (string.IsNullOrEmpty(conn.Value.Database)) return loc1;
+                        tbname = new[] { conn.Value.Database, tbname[0] };
+                    }
+                }
+                if (ignoreCase) tbname = tbname.Select(a => a.ToLower()).ToArray();
+                database = new[] { tbname[0] };
+            }
+            else if (database == null || database.Any() == false)
             {
                 using (var conn = _orm.Ado.MasterPool.Get())
                 {
@@ -129,8 +163,9 @@ namespace FreeSql.Odbc.MySql
                     database = new[] { conn.Value.Database };
                 }
             }
+
             var databaseIn = string.Join(",", database.Select(a => _commonUtils.FormatSql("{0}", a)));
-            var sql = string.Format(@"
+            var sql = $@"
 select 
 concat(a.table_schema, '.', a.table_name) 'id',
 a.table_schema 'schema',
@@ -138,7 +173,7 @@ a.table_name 'table',
 a.table_comment,
 a.table_type 'type'
 from information_schema.tables a
-where a.table_schema in ({0})", databaseIn);
+where {(ignoreCase ? "lower(a.table_schema)" : "a.table_schema")} in ({databaseIn}){(tbname == null ? "" : $" and {(ignoreCase ? "lower(a.table_name)" : "a.table_name")}={_commonUtils.FormatSql("{0}", tbname[1])}")}";
             var ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
             if (ds == null) return loc1;
 
@@ -159,7 +194,7 @@ where a.table_schema in ({0})", databaseIn);
                     schema = "";
                 }
                 loc2.Add(table_id, new DbTableInfo { Id = table_id, Schema = schema, Name = table, Comment = comment, Type = type });
-                loc3.Add(table_id, new Dictionary<string, DbColumnInfo>());
+                loc3.Add(table_id, new Dictionary<string, DbColumnInfo>(StringComparer.CurrentCultureIgnoreCase));
                 switch (type)
                 {
                     case DbTableType.TABLE:
@@ -199,7 +234,7 @@ where a.table_schema in ({0})", databaseIn);
             }
             loc8.Append(")");
 
-            sql = string.Format(@"
+            sql = $@"
 select
 concat(a.table_schema, '.', a.table_name),
 a.column_name,
@@ -209,14 +244,16 @@ a.column_type,
 case when a.is_nullable = 'YES' then 1 else 0 end 'is_nullable',
 case when locate('auto_increment', a.extra) > 0 then 1 else 0 end 'is_identity',
 a.column_comment 'comment',
-a.column_default 'default_value'
+a.column_default 'default_value',
+a.ordinal_position,
+a.numeric_precision,
+a.numeric_scale
 from information_schema.columns a
-where a.table_schema in ({1}) and {0}
-", loc8, databaseIn);
+where {(ignoreCase ? "lower(a.table_schema)" : "a.table_schema")} in ({databaseIn}) and {loc8}
+";
             ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
             if (ds == null) return loc1;
 
-            var position = 0;
             foreach (var row in ds)
             {
                 string table_id = string.Concat(row[0]);
@@ -230,6 +267,10 @@ where a.table_schema in ({1}) and {0}
                 bool is_identity = string.Concat(row[6]) == "1";
                 string comment = string.Concat(row[7]);
                 string defaultValue = string.Concat(row[8]);
+                var position = int.Parse(string.Concat(row[9]));
+                int.TryParse(string.Concat(row[10]), out var numeric_precision);
+                int.TryParse(string.Concat(row[11]), out var numeric_scale);
+
                 if (max_length == 0) max_length = -1;
                 if (database.Length == 1)
                 {
@@ -245,15 +286,17 @@ where a.table_schema in ({1}) and {0}
                     DbTypeText = type,
                     DbTypeTextFull = sqlType,
                     Table = loc2[table_id],
-                    Coment = comment,
+                    Comment = comment,
                     DefaultValue = defaultValue,
-                    Position = ++position
+                    Position = position,
+                    Precision = numeric_precision,
+                    Scale = numeric_scale,
                 });
                 loc3[table_id][column].DbType = this.GetDbType(loc3[table_id][column]);
                 loc3[table_id][column].CsType = this.GetCsTypeInfo(loc3[table_id][column]);
             }
 
-            sql = string.Format(@"
+            sql = $@"
 select 
 concat(a.table_schema, '.', a.table_name) 'table_id',
 a.column_name,
@@ -261,15 +304,15 @@ a.index_name 'index_id',
 case when a.non_unique = 0 then 1 else 0 end 'IsUnique',
 case when a.index_name = 'PRIMARY' then 1 else 0 end 'IsPrimaryKey',
 0 'IsClustered',
-0 'IsDesc'
+case when a.collation = 'D' then 1 else 0 end 'IsDesc'
 from information_schema.statistics a
-where a.table_schema in ({1}) and {0}
-", loc8, databaseIn);
+where {(ignoreCase ? "lower(a.table_schema)" : "a.table_schema")} in ({databaseIn}) and {loc8}
+";
             ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
             if (ds == null) return loc1;
 
-            var indexColumns = new Dictionary<string, Dictionary<string, DbIndexInfo>>();
-            var uniqueColumns = new Dictionary<string, Dictionary<string, DbIndexInfo>>();
+            var indexColumns = new Dictionary<string, Dictionary<string, DbIndexInfo>>(StringComparer.CurrentCultureIgnoreCase);
+            var uniqueColumns = new Dictionary<string, Dictionary<string, DbIndexInfo>>(StringComparer.CurrentCultureIgnoreCase);
             foreach (var row in ds)
             {
                 string table_id = string.Concat(row[0]);
@@ -288,16 +331,16 @@ where a.table_schema in ({1}) and {0}
                 Dictionary<string, DbIndexInfo> loc10 = null;
                 DbIndexInfo loc11 = null;
                 if (!indexColumns.TryGetValue(table_id, out loc10))
-                    indexColumns.Add(table_id, loc10 = new Dictionary<string, DbIndexInfo>());
+                    indexColumns.Add(table_id, loc10 = new Dictionary<string, DbIndexInfo>(StringComparer.CurrentCultureIgnoreCase));
                 if (!loc10.TryGetValue(index_id, out loc11))
-                    loc10.Add(index_id, loc11 = new DbIndexInfo());
+                    loc10.Add(index_id, loc11 = new DbIndexInfo { Name = index_id });
                 loc11.Columns.Add(new DbIndexColumnInfo { Column = loc9, IsDesc = is_desc });
                 if (is_unique && !is_primary_key)
                 {
                     if (!uniqueColumns.TryGetValue(table_id, out loc10))
-                        uniqueColumns.Add(table_id, loc10 = new Dictionary<string, DbIndexInfo>());
+                        uniqueColumns.Add(table_id, loc10 = new Dictionary<string, DbIndexInfo>(StringComparer.CurrentCultureIgnoreCase));
                     if (!loc10.TryGetValue(index_id, out loc11))
-                        loc10.Add(index_id, loc11 = new DbIndexInfo());
+                        loc10.Add(index_id, loc11 = new DbIndexInfo { Name = index_id });
                     loc11.Columns.Add(new DbIndexColumnInfo { Column = loc9, IsDesc = is_desc });
                 }
             }
@@ -315,7 +358,9 @@ where a.table_schema in ({1}) and {0}
                 }
             }
 
-            sql = string.Format(@"
+            if (tbname == null)
+            {
+                sql = $@"
 select 
 concat(a.constraint_schema, '.', a.table_name) 'table_id',
 a.column_name,
@@ -324,43 +369,44 @@ concat(a.referenced_table_schema, '.', a.referenced_table_name) 'ref_table_id',
 1 'IsForeignKey',
 a.referenced_column_name 'ref_column'
 from information_schema.key_column_usage a
-where a.constraint_schema in ({1}) and {0} and not isnull(position_in_unique_constraint)
-", loc8, databaseIn);
-            ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
-            if (ds == null) return loc1;
+where {(ignoreCase ? "lower(a.constraint_schema)" : "a.constraint_schema")} in ({databaseIn}) and {loc8} and not isnull(position_in_unique_constraint)
+";
+                ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
+                if (ds == null) return loc1;
 
-            var fkColumns = new Dictionary<string, Dictionary<string, DbForeignInfo>>();
-            foreach (var row in ds)
-            {
-                string table_id = string.Concat(row[0]);
-                string column = string.Concat(row[1]);
-                string fk_id = string.Concat(row[2]);
-                string ref_table_id = string.Concat(row[3]);
-                bool is_foreign_key = string.Concat(row[4]) == "1";
-                string referenced_column = string.Concat(row[5]);
-                if (database.Length == 1)
+                var fkColumns = new Dictionary<string, Dictionary<string, DbForeignInfo>>(StringComparer.CurrentCultureIgnoreCase);
+                foreach (var row in ds)
                 {
-                    table_id = table_id.Substring(table_id.IndexOf('.') + 1);
-                    ref_table_id = ref_table_id.Substring(ref_table_id.IndexOf('.') + 1);
-                }
-                if (loc3.ContainsKey(table_id) == false || loc3[table_id].ContainsKey(column) == false) continue;
-                var loc9 = loc3[table_id][column];
-                if (loc2.ContainsKey(ref_table_id) == false) continue;
-                var loc10 = loc2[ref_table_id];
-                var loc11 = loc3[ref_table_id][referenced_column];
+                    string table_id = string.Concat(row[0]);
+                    string column = string.Concat(row[1]);
+                    string fk_id = string.Concat(row[2]);
+                    string ref_table_id = string.Concat(row[3]);
+                    bool is_foreign_key = string.Concat(row[4]) == "1";
+                    string referenced_column = string.Concat(row[5]);
+                    if (database.Length == 1)
+                    {
+                        table_id = table_id.Substring(table_id.IndexOf('.') + 1);
+                        ref_table_id = ref_table_id.Substring(ref_table_id.IndexOf('.') + 1);
+                    }
+                    if (loc3.ContainsKey(table_id) == false || loc3[table_id].ContainsKey(column) == false) continue;
+                    var loc9 = loc3[table_id][column];
+                    if (loc2.ContainsKey(ref_table_id) == false) continue;
+                    var loc10 = loc2[ref_table_id];
+                    var loc11 = loc3[ref_table_id][referenced_column];
 
-                Dictionary<string, DbForeignInfo> loc12 = null;
-                DbForeignInfo loc13 = null;
-                if (!fkColumns.TryGetValue(table_id, out loc12))
-                    fkColumns.Add(table_id, loc12 = new Dictionary<string, DbForeignInfo>());
-                if (!loc12.TryGetValue(fk_id, out loc13))
-                    loc12.Add(fk_id, loc13 = new DbForeignInfo { Table = loc2[table_id], ReferencedTable = loc10 });
-                loc13.Columns.Add(loc9);
-                loc13.ReferencedColumns.Add(loc11);
+                    Dictionary<string, DbForeignInfo> loc12 = null;
+                    DbForeignInfo loc13 = null;
+                    if (!fkColumns.TryGetValue(table_id, out loc12))
+                        fkColumns.Add(table_id, loc12 = new Dictionary<string, DbForeignInfo>(StringComparer.CurrentCultureIgnoreCase));
+                    if (!loc12.TryGetValue(fk_id, out loc13))
+                        loc12.Add(fk_id, loc13 = new DbForeignInfo { Table = loc2[table_id], ReferencedTable = loc10 });
+                    loc13.Columns.Add(loc9);
+                    loc13.ReferencedColumns.Add(loc11);
+                }
+                foreach (var table_id in fkColumns.Keys)
+                    foreach (var fk in fkColumns[table_id])
+                        loc2[table_id].ForeignsDict.Add(fk.Key, fk.Value);
             }
-            foreach (var table_id in fkColumns.Keys)
-                foreach (var fk in fkColumns[table_id])
-                    loc2[table_id].ForeignsDict.Add(fk.Key, fk.Value);
 
             foreach (var table_id in loc3.Keys)
             {
@@ -391,7 +437,7 @@ where a.constraint_schema in ({1}) and {0} and not isnull(position_in_unique_con
                         bool b2 = loc4.ForeignsDict.Values.Where(fk => fk.Columns.Where(c3 => c3.Name == c2.Name).Any()).Any();
                         compare = b2.CompareTo(b1);
                     }
-                    if (compare == 0) compare = c1.Name.CompareTo(c2.Name);
+                    if (compare == 0) compare = c1.Position.CompareTo(c2.Position);
                     return compare;
                 });
                 loc1.Add(loc4);

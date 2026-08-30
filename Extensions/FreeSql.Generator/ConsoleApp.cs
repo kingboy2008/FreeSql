@@ -1,5 +1,7 @@
-﻿using RazorEngine.Templating;
+﻿using FreeSql.DatabaseModel;
+using RazorEngine.Templating;
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -20,22 +22,24 @@ namespace FreeSql.Generator
         string ArgsConnectionString { get; }
         string ArgsFilter { get; }
         string ArgsMatch { get; }
+        string ArgsJson { get; }
         string ArgsFileName { get; }
+        bool ArgsReadKey { get; }
         internal string ArgsOutput { get; private set; }
 
         public ConsoleApp(string[] args, ManualResetEvent wait)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-            var gb2312 = Encoding.GetEncoding("GB2312");
-            if (gb2312 != null)
-            {
-                try
-                {
-                    Console.OutputEncoding = gb2312;
-                    Console.InputEncoding = gb2312;
-                }
-                catch { }
-            }
+            //var gb2312 = Encoding.GetEncoding("GB2312");
+            //if (gb2312 != null)
+            //{
+            //    try
+            //    {
+            //        Console.OutputEncoding = gb2312;
+            //        Console.InputEncoding = gb2312;
+            //    }
+            //    catch { }
+            //}
 
             //var ntjson = Assembly.LoadFile(@"C:\Users\28810\Desktop\testfreesql\bin\Debug\netcoreapp2.2\publish\testfreesql.dll");
 
@@ -59,7 +63,9 @@ new Colorful.Formatter("v" + string.Join(".", typeof(ConsoleApp).Assembly.GetNam
             ArgsNameSpace = "MyProject";
             ArgsFilter = "";
             ArgsMatch = "";
+            ArgsJson = "Newtonsoft.Json";
             ArgsFileName = "{name}.cs";
+            ArgsReadKey = true;
             Action<string> setArgsOutput = value =>
             {
                 ArgsOutput = value;
@@ -74,62 +80,54 @@ new Colorful.Formatter("v" + string.Join(".", typeof(ConsoleApp).Assembly.GetNam
             if (args[0] == "?" || args0 == "--help" || args0 == "-help")
             {
 
-                Console.WriteFormatted(@"
-    {0}
+                Console.WriteFormatted($@"
+    {{0}}
 
-    更新工具：dotnet tool update -g FreeSql.Generator
+    {ConsoleAppStrings.UpdateTool}
 
 
-  # 快速开始 #
+  # {ConsoleAppStrings.QuickStart} #
 
-  > {1} {2} 1 {3} 0,0,0,0 {4} MyProject {5} ""MySql,Data Source=127.0.0.1;...""
+  > {{1}} {{2}} 1 {{3}} 0,0,0,0 {{4}} MyProject {{5}} ""MySql,Data Source=127.0.0.1;...""
 
-     -Razor 1                  * 选择模板：实体类+特性
-     
-     -Razor 2                  * 选择模板：实体类+特性+导航属性
-     
-     -Razor ""d:\diy.cshtml""    * 自定义模板文件
-     
-     -NameOptions              * 总共4个布尔值，分别对应：
-                               # 首字母大写
-                               # 首字母大写,其他小写
-                               # 全部小写
-                               # 下划线转驼峰
-                               
-     -NameSpace                * 命名空间
-     
-     -DB ""{6},Data Source=127.0.0.1;Port=3306;User ID=root;Password=root;Initial Catalog=数据库;Charset=utf8;SslMode=none;Max pool size=2""
-     
-     -DB ""{7},Data Source=.;Integrated Security=True;Initial Catalog=数据库;Pooling=true;Max Pool Size=2""
-     
-     -DB ""{8},Host=192.168.164.10;Port=5432;Username=postgres;Password=123456;Database=数据库;Pooling=true;Maximum Pool Size=2""
-     
-     -DB ""{9},user id=user1;password=123456;data source=//127.0.0.1:1521/XE;Pooling=true;Max Pool Size=2""
+     -Razor 1                  * {ConsoleAppStrings.SelectTemplate1}
+     -Razor 2                  * {ConsoleAppStrings.SelectTemplate2}
+     -Razor ""d:\diy.cshtml""    * {ConsoleAppStrings.CustomTemplateFile}
 
-     -DB ""{10},Data Source=document.db""
-     
-     -DB ""{11},server=127.0.0.1;port=5236;user id=2user;password=123456789;database=2user;poolsize=2""
-                               {11} 达梦数据库
+     -NameOptions              * {ConsoleAppStrings.NameOptionsDescription}
+                                 {ConsoleAppStrings.FirstLetterUppercase}
+                                 {ConsoleAppStrings.FirstLetterUppercaseOthersLowercase}
+                                 {ConsoleAppStrings.AllLowercase}
+                                 {ConsoleAppStrings.UnderscoreToCamelCase}
 
-     -DB ""{12},Driver={KingbaseES 8.2 ODBC Driver ANSI};Server=127.0.0.1;Port=54321;UID=USER2;PWD=123456789;database=数据库""
-                               {12} 人大金仓数据库
+     -NameSpace                * {ConsoleAppStrings.NameSpace}
 
-     -DB ""{13},HOST=192.168.164.10;PORT=2003;DATABASE=OSRDB;USERNAME=SYSDBA;PASSWORD=szoscar55;MAXPOOLSIZE=2""
-                               {13} 神舟通用数据库
+     -DB ""{{6}},data source=127.0.0.1;port=3306;user id=root;password=root;initial catalog={ConsoleAppStrings.Database};charset=utf8;sslmode=none;max pool size=2""
+     -DB ""{{7}},data source=.;integrated security=True;initial catalog={ConsoleAppStrings.Database};pooling=true;max pool size=2""
+     -DB ""{{8}},host=127.0.0.1;port=5432;username=postgres;password=123456;database={ConsoleAppStrings.Database};pooling=true;maximum pool size=2""
+     -DB ""{{9}},user id=user1;password=123456;data source=//127.0.0.1:1521/XE;pooling=true;max pool size=2""
+     -DB ""{{10}},data source=document.db""
+     -DB ""{{14}},database=localhost:D:\fbdata\EXAMPLES.fdb;user=sysdba;password=123456;max pool size=2""
+     -DB ""{{11}},server=127.0.0.1;port=5236;user id=2user;password=123456789;database=2user;poolsize=2""
+     -DB ""{{12}},server=127.0.0.1;port=54321;uid=USER2;pwd=123456789;database={ConsoleAppStrings.Database}""
+     -DB ""{{13}},host=127.0.0.1;port=2003;database={ConsoleAppStrings.Database};username=SYSDBA;password=szoscar55;maxpoolsize=2""
+                               * {{11}}({ConsoleAppStrings.DamengDatabase})、{{12}}({ConsoleAppStrings.KingbaseESDatabase})、{{13}}({ConsoleAppStrings.ShenTongDatabase})
 
      -Filter                   Table+View+StoreProcedure
-                               默认生成：表+视图+存储过程
-                               如果不想生成视图和存储过程 -Filter View+StoreProcedure
+                               {ConsoleAppStrings.DefaultGeneration}
+                               {ConsoleAppStrings.FilterDescription}
 
-     -Match                    正则表达式，只生成匹配的表，如：dbo\.TB_.+
+     -Match                    {ConsoleAppStrings.MatchDescription}
+     -Json                     NTJ、STJ、NONE
+                               {ConsoleAppStrings.JsonDescription}
 
-     -FileName                 文件名，默认：{name}.cs
-
-     -Output                   保存路径，默认为当前 shell 所在目录
-                               {14}
+     -FileName                 {ConsoleAppStrings.FileNameDescription}
+     -Output                   {ConsoleAppStrings.OutputDescription}
+                               {{15}}
+     -Lang                     {ConsoleAppStrings.LangDescription}
 
 ", Color.SlateGray,
-new Colorful.Formatter("使用 FreeSql 快速生成数据库的实体类", Color.SlateGray),
+new Colorful.Formatter(ConsoleAppStrings.ToolDescription, Color.SlateGray),
 new Colorful.Formatter("FreeSql.Generator", Color.White),
 new Colorful.Formatter("-Razor", Color.ForestGreen),
 new Colorful.Formatter("-NameOptions", Color.ForestGreen),
@@ -141,9 +139,10 @@ new Colorful.Formatter("PostgreSQL", Color.Yellow),
 new Colorful.Formatter("Oracle", Color.Yellow),
 new Colorful.Formatter("Sqlite", Color.Yellow),
 new Colorful.Formatter("Dameng", Color.Yellow),
-new Colorful.Formatter("OdbcKingbaseES", Color.Yellow),
+new Colorful.Formatter("KingbaseES", Color.Yellow),
 new Colorful.Formatter("ShenTong", Color.Yellow),
-new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新所有实体类", Color.ForestGreen)
+new Colorful.Formatter("Firebird", Color.Yellow),
+new Colorful.Formatter(ConsoleAppStrings.RecommendGenBat, Color.ForestGreen)
 );
                 wait.Set();
                 return;
@@ -158,14 +157,14 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                         {
                             case "1": ArgsRazor = RazorContentManager.实体类_特性_cshtml; break;
                             case "2": ArgsRazor = RazorContentManager.实体类_特性_导航属性_cshtml; break;
-                            default: ArgsRazor = File.ReadAllText(args[a + 1]); break;
+                            default: ArgsRazor = File.ReadAllText(args[a + 1], Encoding.UTF8); break;
                         }
                         a++;
                         break;
 
                     case "-nameoptions":
                         ArgsNameOptions = args[a + 1].Split(',').Select(opt => opt == "1").ToArray();
-                        if (ArgsNameOptions.Length != 4) throw new ArgumentException("-NameOptions 参数错误，格式为：0,0,0,0");
+                        if (ArgsNameOptions.Length != 4) throw new ArgumentException(CoreErrorStrings.S_NameOptions_Incorrect);
                         a++;
                         break;
                     case "-namespace":
@@ -174,7 +173,8 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                         break;
                     case "-db":
                         var dbargs = args[a + 1].Split(',', 2);
-                        if (dbargs.Length != 2) throw new ArgumentException("-DB 参数错误，格式为：MySql,ConnectionString");
+                        if (dbargs.Length != 2) throw new ArgumentException(CoreErrorStrings.S_DB_ParameterError);
+
                         switch (dbargs[0].Trim().ToLower())
                         {
                             case "mysql": ArgsDbType = DataType.MySql; break;
@@ -182,10 +182,12 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                             case "postgresql": ArgsDbType = DataType.PostgreSQL; break;
                             case "oracle": ArgsDbType = DataType.Oracle; break;
                             case "sqlite": ArgsDbType = DataType.Sqlite; break;
+                            case "firebird": ArgsDbType = DataType.Firebird; break;
                             case "dameng": ArgsDbType = DataType.Dameng; break;
-                            case "odbckingbasees": ArgsDbType = DataType.OdbcKingbaseES; break;
+                            case "kingbasees": ArgsDbType = DataType.KingbaseES; break;
                             case "shentong": ArgsDbType = DataType.ShenTong; break;
-                            default: throw new ArgumentException($"-DB 参数错误，不支持的类型：\"{dbargs[0]}\"");
+                            case "clickhouse": ArgsDbType = DataType.ClickHouse; break;
+                            default: throw new ArgumentException(CoreErrorStrings.S_DB_ParameterError_UnsupportedType(dbargs[0]));
                         }
                         ArgsConnectionString = dbargs[1].Trim();
                         a++;
@@ -199,8 +201,24 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                         if (Regex.IsMatch("", ArgsMatch)) { } //throw
                         a++;
                         break;
+                    case "-json":
+                        switch(args[a + 1].Trim().ToLower())
+                        {
+                            case "none":
+                                ArgsJson = "";
+                                break;
+                            case "stj":
+                                ArgsJson = "System.Text.Json";
+                                break;
+                        }
+                        a++;
+                        break;
                     case "-filename":
                         ArgsFileName = args[a + 1];
+                        a++;
+                        break;
+                    case "-readkey":
+                        ArgsReadKey = args[a + 1].Trim() == "1";
                         a++;
                         break;
                     case "-output":
@@ -208,11 +226,11 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                         a++;
                         break;
                     default:
-                        throw new ArgumentException($"错误的参数设置：{args[a]}");
+                        throw new ArgumentException(CoreErrorStrings.S_WrongParameter(args[a]));
                 }
             }
 
-            if (string.IsNullOrEmpty(ArgsConnectionString)) throw new ArgumentException($"-DB 参数错误，未提供 ConnectionString");
+            if (string.IsNullOrEmpty(ArgsConnectionString)) throw new ArgumentException(CoreErrorStrings.S_DB_Parameter_Error_NoConnectionString);
 
             RazorEngine.Engine.Razor = RazorEngineService.Create(new RazorEngine.Configuration.TemplateServiceConfiguration
             {
@@ -228,7 +246,18 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                 .UseMonitorCommand(cmd => Console.WriteFormatted(cmd.CommandText + "\r\n", Color.SlateGray))
                 .Build())
             {
-                var tables = fsql.DbFirst.GetTablesByDatabase();
+                List<DbTableInfo> tables = new List<DbTableInfo>();
+                if (string.IsNullOrEmpty(ArgsMatch) == false)
+                {
+                    try
+                    {
+                        var matchTable = fsql.DbFirst.GetTableByName(ArgsMatch);
+                        if (matchTable != null) tables.Add(matchTable);
+                    }
+                    catch { }
+                }
+                if (tables.Any() == false)
+                    tables = fsql.DbFirst.GetTablesByDatabase();
                 var outputTables = tables;
 
                 //开始生成操作
@@ -243,21 +272,21 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                         case DatabaseModel.DbTableType.TABLE:
                             if (ArgsFilter.Contains("Table", StringComparison.OrdinalIgnoreCase))
                             {
-                                Console.WriteFormatted(" Ignore Table -> " + table.Name + "\r\n", Color.DarkSlateGray);
+                                Console.WriteFormatted(ConsoleAppStrings.IgnoreTable("Table", table.Name) + "\r\n", Color.DarkSlateGray);
                                 continue;
                             }
                             break;
                         case DatabaseModel.DbTableType.VIEW:
                             if (ArgsFilter.Contains("View", StringComparison.OrdinalIgnoreCase))
                             {
-                                Console.WriteFormatted(" Ignore View -> " + table.Name + "\r\n", Color.DarkSlateGray);
+                                Console.WriteFormatted(ConsoleAppStrings.IgnoreTable("View", table.Name) + "\r\n", Color.DarkSlateGray);
                                 continue;
                             }
                             break;
                         case DatabaseModel.DbTableType.StoreProcedure:
                             if (ArgsFilter.Contains("StoreProcedure", StringComparison.OrdinalIgnoreCase))
                             {
-                                Console.WriteFormatted(" Ignore StoreProcedure -> " + table.Name + "\r\n", Color.DarkSlateGray);
+                                Console.WriteFormatted(ConsoleAppStrings.IgnoreTable("StoreProcedure", table.Name) + "\r\n", Color.DarkSlateGray);
                                 continue;
                             }
                             break;
@@ -280,44 +309,45 @@ new Colorful.Formatter("推荐在实体类目录创建 gen.bat，双击它重新
                     plus.AppendLine();
 
                     var outputFile = $"{ArgsOutput}{ArgsFileName.Replace("{name}", model.GetCsName(table.Name))}";
-                    File.WriteAllText(outputFile, plus.ToString());
+                    File.WriteAllText(outputFile, plus.ToString(), Encoding.UTF8);
                     switch (table.Type)
                     {
                         case DatabaseModel.DbTableType.TABLE:
-                            Console.WriteFormatted(" OUT Table -> " + outputFile + "\r\n", Color.DeepSkyBlue);
+                            Console.WriteFormatted(ConsoleAppStrings.OutTable("Table", outputFile) + "\r\n", Color.DeepSkyBlue);
                             break;
                         case DatabaseModel.DbTableType.VIEW:
-                            Console.WriteFormatted(" OUT View -> " + outputFile + "\r\n", Color.DeepSkyBlue);
+                            Console.WriteFormatted(ConsoleAppStrings.OutTable("View", outputFile) + "\r\n", Color.DeepSkyBlue);
                             break;
                         case DatabaseModel.DbTableType.StoreProcedure:
-                            Console.WriteFormatted(" OUT StoreProcedure -> " + outputFile + "\r\n", Color.DeepSkyBlue);
+                            Console.WriteFormatted(ConsoleAppStrings.OutTable("StoreProcedure", outputFile) + "\r\n", Color.DeepSkyBlue);
                             break;
                     }
                     ++outputCounter;
                 }
             }
 
-            var rebuildBat = ArgsOutput + "__重新生成.bat";
+            var rebuildBat = ArgsOutput + ConsoleAppStrings.RebuildBatFileName;
             if (File.Exists(rebuildBat) == false)
             {
-                var razorCshtml = ArgsOutput + "__razor.cshtml.txt";
+                var razorCshtml = ArgsOutput + ConsoleAppStrings.RazorCshtmlFileName;
                 if (File.Exists(razorCshtml) == false)
                 {
-                    File.WriteAllText(razorCshtml, ArgsRazor);
-                    Console.WriteFormatted(" OUT -> " + razorCshtml + "    (以后) 编辑它自定义模板生成\r\n", Color.Magenta);
+                    File.WriteAllText(razorCshtml, ArgsRazor, Encoding.UTF8);
+                    Console.WriteFormatted(" OUT -> " + razorCshtml + "    " + ConsoleAppStrings.EditTemplateHint + "\r\n", Color.Magenta);
                     ++outputCounter;
                 }
 
                 File.WriteAllText(rebuildBat, $@"
 FreeSql.Generator -Razor ""__razor.cshtml.txt"" -NameOptions {string.Join(",", ArgsNameOptions.Select(a => a ? 1 : 0))} -NameSpace {ArgsNameSpace} -DB ""{ArgsDbType},{ArgsConnectionString}""{(string.IsNullOrEmpty(ArgsFilter) ? "" : $" -Filter \"{ArgsFilter}\"")}{(string.IsNullOrEmpty(ArgsMatch) ? "" : $" -Match \"{ArgsMatch}\"")} -FileName ""{ArgsFileName}""
-");
-                Console.WriteFormatted(" OUT -> " + rebuildBat + "    (以后) 双击它重新生成实体\r\n", Color.Magenta);
+", Encoding.UTF8);
+                Console.WriteFormatted(" OUT -> " + rebuildBat + "    " + ConsoleAppStrings.RebuildHint + "\r\n", Color.Magenta);
                 ++outputCounter;
             }
 
-            Console.WriteFormatted($"\r\n[{DateTime.Now.ToString("MM-dd HH:mm:ss")}] 生成完毕，总共生成了 {outputCounter} 个文件，目录：\"{ArgsOutput}\"\r\n", Color.DarkGreen);
+            Console.WriteFormatted($"\r\n[{DateTime.Now.ToString("MM-dd HH:mm:ss")}] {ConsoleAppStrings.GenerationComplete(outputCounter, ArgsOutput)}\r\n", Color.DarkGreen);
 
-            Console.ReadKey();
+            if (ArgsReadKey)
+                Console.ReadKey();
             wait.Set();
         }
     }

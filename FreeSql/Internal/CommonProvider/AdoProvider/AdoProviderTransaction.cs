@@ -53,11 +53,11 @@ namespace FreeSql.Internal.CommonProvider
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"数据库出错（开启事务）{ex.Message} \r\n{ex.StackTrace}");
+                //Trace.WriteLine($"数据库出错（开启事务）{ex.Message} \r\n{ex.StackTrace}");
                 MasterPool.Return(conn);
                 var after = new Aop.TraceAfterEventArgs(before, "", ex);
                 _util?._orm?.Aop.TraceAfterHandler?.Invoke(this, after);
-                throw ex;
+                throw;
             }
             if (_trans.ContainsKey(tid)) CommitTransaction();
             _trans.TryAdd(tid, tran);
@@ -74,21 +74,24 @@ namespace FreeSql.Internal.CommonProvider
         }
         private void CommitTransaction(bool isCommit, Transaction2 tran, Exception rollbackException, string remark = null)
         {
-            if (tran == null || tran.Transaction == null || tran.Transaction.Connection == null) return;
+            if (tran == null || tran.Transaction == null || tran.Connection == null) return;
             _trans.TryRemove(tran.Connection.LastGetThreadId, out var oldtran);
 
             Exception ex = null;
-            if (string.IsNullOrEmpty(remark)) remark = isCommit ? "提交" : "回滚";
+            if (string.IsNullOrEmpty(remark)) remark = isCommit ? CoreErrorStrings.Commit : CoreErrorStrings.RollBack;
             try
             {
-                Trace.WriteLine($"线程{tran.Connection.LastGetThreadId}事务{remark}");
-                if (isCommit) tran.Transaction.Commit();
-                else tran.Transaction.Rollback();
+                if (tran.Transaction.Connection != null) //用户自行 Commit、Rollback
+                {
+                    //Trace.WriteLine($"线程{tran.Connection.LastGetThreadId}事务{remark}");
+                    if (isCommit) tran.Transaction.Commit();
+                    else tran.Transaction.Rollback();
+                }
             }
             catch (Exception ex2)
             {
                 ex = ex2;
-                Trace.WriteLine($"数据库出错（{remark}事务）：{ex.Message} {ex.StackTrace}");
+                //Trace.WriteLine($"数据库出错（{remark}事务）：{ex.Message} {ex.StackTrace}");
             }
             finally
             {
@@ -112,16 +115,17 @@ namespace FreeSql.Internal.CommonProvider
 
         void TransactionInternal(IsolationLevel? isolationLevel, Action handler)
         {
+            var requireTran = TransactionCurrentThread == null;
             try
             {
-                BeginTransaction(isolationLevel);
+                if (requireTran) BeginTransaction(isolationLevel);
                 handler();
-                CommitTransaction();
+                if (requireTran) CommitTransaction();
             }
             catch (Exception ex)
             {
-                RollbackTransaction(ex);
-                throw ex;
+                if (requireTran) RollbackTransaction(ex);
+                throw;
             }
         }
 
@@ -129,6 +133,7 @@ namespace FreeSql.Internal.CommonProvider
         int _disposeCounter;
         public void Dispose()
         {
+            if (ResolveTransaction != null) return;
             if (Interlocked.Increment(ref _disposeCounter) != 1) return;
             try
             {

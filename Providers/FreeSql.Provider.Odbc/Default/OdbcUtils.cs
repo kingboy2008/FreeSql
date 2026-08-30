@@ -18,9 +18,10 @@ namespace FreeSql.Odbc.Default
         {
             if (string.IsNullOrEmpty(parameterName)) parameterName = $"p_{_params?.Count}";
             if (value?.Equals(DateTime.MinValue) == true) value = new DateTime(1970, 1, 1);
-            var ret = new OdbcParameter { ParameterName = QuoteParamterName(parameterName), Value = value };
+            var ret = new OdbcParameter { ParameterName = QuoteParamterName(parameterName) };
             var tp = _orm.CodeFirst.GetDbInfo(type)?.type;
             if (tp != null) ret.OdbcType = (OdbcType)tp.Value;
+            ret.Value = value;
             _params?.Add(ret);
             return ret;
         }
@@ -29,14 +30,16 @@ namespace FreeSql.Odbc.Default
             Utils.GetDbParamtersByObject<OdbcParameter>(sql, obj, null, (name, type, value) =>
             {
                 if (value?.Equals(DateTime.MinValue) == true) value = new DateTime(1970, 1, 1);
-                var ret = new OdbcParameter { ParameterName = $"@{name}", Value = value };
+                var ret = new OdbcParameter { ParameterName = $"@{name}" };
                 var tp = _orm.CodeFirst.GetDbInfo(type)?.type;
                 if (tp != null) ret.OdbcType = (OdbcType)tp.Value;
+                ret.Value = value;
                 return ret;
             });
 
-        public override string FormatSql(string sql, params object[] args) => sql?.FormatOdbc(args);
-        public override string QuoteSqlName(params string[] name)
+        static FreeSql.Odbc.Default.OdbcAdo _customAdo = new FreeSql.Odbc.Default.OdbcAdo();
+        public override string FormatSql(string sql, params object[] args) => (_orm?.Ado as OdbcAdo)?.Addslashes(sql, args) ?? _customAdo.Addslashes(sql, args);
+        public override string QuoteSqlNameAdapter(params string[] name)
         {
             if (name.Length == 1)
             {
@@ -66,10 +69,10 @@ namespace FreeSql.Odbc.Default
         public override string Now => Adapter.LambdaDateTime_Now;
         public override string NowUtc => Adapter.LambdaDateTime_UtcNow;
 
-        public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
-        public override string QuoteReadColumn(Type type, Type mapType, string columnName) => Adapter.FieldSql(type, columnName);
+        public override string QuoteWriteParamterAdapter(Type type, string paramterName) => paramterName;
+        protected override string QuoteReadColumnAdapter(Type type, Type mapType, string columnName) => Adapter.FieldSql(type, columnName);
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);

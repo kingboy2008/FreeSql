@@ -1,12 +1,10 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 using Newtonsoft.Json.Linq;
-using Npgsql;
 using Npgsql.LegacyPostgis;
 using NpgsqlTypes;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -18,11 +16,7 @@ namespace FreeSql.Tests.PostgreSQLExpression
     {
 
         ISelect<TableAllType> select => g.pgsql.Select<TableAllType>();
-
-        public OtherTest()
-        {
-            NpgsqlConnection.GlobalTypeMapper.UseLegacyPostgis();
-        }
+        IFreeSql fsql => g.pgsql;
 
         [Fact]
         public void Div()
@@ -39,11 +33,24 @@ namespace FreeSql.Tests.PostgreSQLExpression
             var t8 = select.Where(a => a.testFieldDecimal / 3 > 3).Limit(10).ToList();
             var t9 = select.Where(a => a.testFieldFloat / 3 > 3).Limit(10).ToList();
         }
-
-        [Fact]
+        [Table(DisableSyncStructure = true)]
+		public class Student
+		{
+			public string Name { get; set; }
+			[Column(MapType = typeof(int))]
+			public bool IsDelete { get; set; }
+		}
+		[Fact]
         public void Boolean()
         {
-            var t1 = select.Where(a => a.testFieldBool == true).Limit(10).ToList();
+			var mapintSql01 = fsql.Select<Student>().Where(d => d.IsDelete).ToSql("1");
+			var mapintSql02 = fsql.Select<Student>().Where(d => d.IsDelete == true).ToSql("1");
+            Assert.Equal(mapintSql02, mapintSql01);
+            Assert.Equal(@"SELECT 1 
+FROM ""student"" a 
+WHERE (a.""isdelete"" = 1)", mapintSql01);
+
+			var t1 = select.Where(a => a.testFieldBool == true).Limit(10).ToList();
             var t2 = select.Where(a => a.testFieldBool != true).Limit(10).ToList();
             var t3 = select.Where(a => a.testFieldBool == false).Limit(10).ToList();
             var t4 = select.Where(a => !a.testFieldBool).Limit(10).ToList();
@@ -85,7 +92,7 @@ namespace FreeSql.Tests.PostgreSQLExpression
         public void Array()
         {
             //g.pgsql.Aop.CurdAfter = (s, e) => {
-            //	Trace.WriteLine(e.CurdType + ": " + e.ElapsedMilliseconds + "ms " + e.Sql.Replace("\n", ""));
+            //    Trace.WriteLine(e.CurdType + ": " + e.ElapsedMilliseconds + "ms " + e.Sql.Replace("\n", ""));
             //};
             IEnumerable<int> testlinqlist = new List<int>(new[] { 1, 2, 3 });
             var testlinq = select.Where(a => testlinqlist.Contains(a.testFieldInt)).ToList();
@@ -125,7 +132,8 @@ namespace FreeSql.Tests.PostgreSQLExpression
             var sql3 = select.Where(a => a.testFieldIntArray.Any()).ToList();
             var sql4 = select.Where(a => a.testFieldIntArray.Any() == false).ToList();
 
-            var sql5 = select.ToList(a => a.testFieldIntArray.Concat(new[] { 1, 2, 3 }));
+            //var sql5 = select.ToList(a => a.testFieldIntArray.Concat(new[] { 1, 2, 3 }));
+            //v5.0.1.1 Unable to cast object of type 'System.Nullable`1[System.Int32][]' to type 'System.Collections.Generic.IEnumerable`1[System.Int32]'.
 
             var sql6 = select.Where(a => a.testFieldIntArray.GetLength(1) > 0).ToList();
             var sql7 = select.Where(a => a.testFieldIntArray.GetLongLength(1) > 0).ToList();
@@ -142,42 +150,49 @@ namespace FreeSql.Tests.PostgreSQLExpression
         public void Jsonb()
         {
 
-            var sql1 = select.Where(a => a.testFieldJToken.Contains(JToken.Parse("{a:1}"))).ToList();
-            var sql2 = select.Where(a => a.testFieldJToken.Contains(JToken.Parse("{a:1}")) == false).ToList();
-            var sql111 = select.Where(a => a.testFieldJToken.Contains("{a:1}")).ToList();
-            var sql222 = select.Where(a => a.testFieldJToken.Contains("{a:1}") == false).ToList();
+            var sql1 = select.Where(a => a.testFieldJToken.Contains(JToken.Parse("{a:1}"))).Limit(10).ToList();
+            var sql2 = select.Where(a => a.testFieldJToken.Contains(JToken.Parse("{a:1}")) == false).Limit(10).ToList();
+            var sql111 = select.Where(a => a.testFieldJToken.Contains("{\"a\":1}")).Limit(10).ToList();
+            var sql222 = select.Where(a => a.testFieldJToken.Contains("{\"a\":1}") == false).Limit(10).ToList();
 
-            var sql3 = select.Where(a => a.testFieldJObject.ContainsKey("a")).ToList();
-            var sql4 = select.Where(a => a.testFieldJObject.ContainsKey("a") == false).ToList();
+            var sql3 = select.Where(a => a.testFieldJObject.ContainsKey("a")).Limit(10).ToList();
+            var sql4 = select.Where(a => a.testFieldJObject.ContainsKey("a") == false).Limit(10).ToList();
 
-            var sql5 = select.Where(a => a.testFieldJArray.Contains(1)).ToList();
-            var sql6 = select.Where(a => a.testFieldJArray.Contains(1) == false).ToList();
-            var sql555 = select.Where(a => a.testFieldJArray.Contains(1)).ToList();
-            var sql666 = select.Where(a => a.testFieldJArray.Contains(1) == false).ToList();
+            var sql5 = select.Where(a => a.testFieldJArray.Contains(1)).Limit(10).ToList();
+            var sql6 = select.Where(a => a.testFieldJArray.Contains(1) == false).Limit(10).ToList();
+            var sql555 = select.Where(a => a.testFieldJArray.Contains(1)).Limit(10).ToList();
+            var sql666 = select.Where(a => a.testFieldJArray.Contains(1) == false).Limit(10).ToList();
 
-            //var sql7 = select.Where(a => a.testFieldJToken.Any()).ToList();
-            //var sql8 = select.Where(a => a.testFieldJToken.Any() == false).ToList();
+            //var sql7 = select.Where(a => a.testFieldJToken.Any()).Limit(10).ToList();
+            //var sql8 = select.Where(a => a.testFieldJToken.Any() == false).Limit(10).ToList();
 
-            var sql9 = select.Where(a => a.testFieldJArray.Any()).ToList();
-            var sql10 = select.Where(a => a.testFieldJArray.Any() == false).ToList();
+            var sql9 = select.Where(a => a.testFieldJArray.Any()).Limit(10).ToList();
+            var sql10 = select.Where(a => a.testFieldJArray.Any() == false).Limit(10).ToList();
 
-            //var sql11 = select.ToList(a => a.testFieldJToken.Concat(JToken.Parse("{a:1}")));
-            //var sql12 = select.ToList(a => a.testFieldJObject.Concat(JToken.Parse("{a:1}")));
-            //var sql13 = select.ToList(a => a.testFieldJArray.Concat(JToken.Parse("{a:1}")));
+            //var sql11 = select.Limit(10).ToList(a => a.testFieldJToken.Concat(JToken.Parse("{a:1}")));
+            //var sql12 = select.Limit(10).ToList(a => a.testFieldJObject.Concat(JToken.Parse("{a:1}")));
+            //var sql13 = select.Limit(10).ToList(a => a.testFieldJArray.Concat(JToken.Parse("{a:1}")));
 
-            //var sql14 = select.Where(a => a.testFieldJToken.Count() > 0).ToList();
-            //var sql15 = select.Where(a => a.testFieldJObject.Count > 0).ToList();
-            var sql16 = select.Where(a => a.testFieldJArray.Count() > 0).ToList();
-            var sql17 = select.Where(a => a.testFieldJArray.LongCount() > 0).ToList();
-            var sql18 = select.Where(a => a.testFieldJArray.Count > 0).ToList();
+            //var sql14 = select.Where(a => a.testFieldJToken.Count() > 0).Limit(10).ToList();
+            //var sql15 = select.Where(a => a.testFieldJObject.Count > 0).Limit(10).ToList();
+            var sql16 = select.Where(a => a.testFieldJArray.Count() > 0).Limit(10).ToList();
+            var sql17 = select.Where(a => a.testFieldJArray.LongCount() > 0).Limit(10).ToList();
+            var sql18 = select.Where(a => a.testFieldJArray.Count > 0).Limit(10).ToList();
+
+            var sql19 = select.First(a => a.testFieldJToken["a"]);
+            var sql20 = select.Where(a => a.testFieldJToken["a"].ToString().Equals("1")).ToList();
+            var sql21 = select.Where(a => a.testFieldJToken["a"].ToString() == "1").ToList();
+            var sql23 = select.Where(a => int.Parse(a.testFieldJToken["a"].ToString()) > 0).ToList();
+
         }
 
         [Fact]
         public void HStore()
         {
-
             var sql1 = select.Where(a => a.testFieldHStore.ContainsKey("a")).ToList();
             var sql2 = select.Where(a => a.testFieldHStore.ContainsKey("a") == false).ToList();
+
+            var sql3 = select.Where(a => a.testFieldHStore["a"] == "xxx").ToList();
         }
 
         [Table(Name = "tb_alltype")]

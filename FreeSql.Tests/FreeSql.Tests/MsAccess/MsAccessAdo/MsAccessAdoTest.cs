@@ -1,5 +1,6 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 using System;
+using System.Data.OleDb;
 using Xunit;
 
 namespace FreeSql.Tests.MsAccess
@@ -10,12 +11,26 @@ namespace FreeSql.Tests.MsAccess
         public void Pool()
         {
             var t1 = g.msaccess.Ado.MasterPool.StatisticsFullily;
+
+            var connectionString = @"Provider=Microsoft.ACE.OLEDB.12.0;Data Source=d:/accdb/2007.accdb;max pool size=51";
+            using (var t2 = new FreeSqlBuilder()
+                .UseConnectionFactory(FreeSql.DataType.MsAccess, () => new OleDbConnection(connectionString))
+                .Build())
+            {
+                Assert.Equal(connectionString, t2.Ado.ConnectionString);
+            }
         }
 
         [Fact]
         public void SlavePools()
         {
             var t2 = g.msaccess.Ado.SlavePools.Count;
+        }
+
+        [Fact]
+        public void ExecuteTest()
+        {
+            Assert.True(g.msaccess.Ado.ExecuteConnectTest());
         }
         [Fact]
         public void ExecuteReader()
@@ -53,6 +68,8 @@ namespace FreeSql.Tests.MsAccess
             var t4 = g.msaccess.Ado.Query<(int, string, string)>("select * from [song]");
 
             var t5 = g.msaccess.Ado.Query<dynamic>("select * from [song]");
+
+            var t6 = g.msaccess.Ado.Query<xxx>("select * from song where id in @ids", new { ids = new[] { 1, 2, 3 } });
         }
 
         [Fact]

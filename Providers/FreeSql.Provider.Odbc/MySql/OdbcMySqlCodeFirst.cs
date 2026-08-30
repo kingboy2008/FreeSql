@@ -1,8 +1,10 @@
 ﻿using FreeSql.Internal;
 using FreeSql.Internal.Model;
+using FreeSql.Internal.ObjectPool;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 using System.Data.Odbc;
 using System.Linq;
 using System.Text;
@@ -39,6 +41,7 @@ namespace FreeSql.Odbc.MySql
 
                 { typeof(byte[]).FullName, CsToDb.New(OdbcType.VarBinary, "varbinary", "varbinary(255)", false, null, new byte[0]) },
                 { typeof(string).FullName, CsToDb.New(OdbcType.VarChar, "varchar", "varchar(255)", false, null, "") },
+                { typeof(char).FullName, CsToDb.New(OdbcType.Char, "char", "char(1) NULL", false, null, '\0') },
 
                 { typeof(Guid).FullName, CsToDb.New(OdbcType.VarChar, "char", "char(36) NOT NULL", false, false, Guid.Empty) },{ typeof(Guid?).FullName, CsToDb.New(OdbcType.VarChar, "char", "char(36)", false, true, null) },
             };
@@ -72,36 +75,23 @@ namespace FreeSql.Odbc.MySql
             return null;
         }
 
-        protected override string GetComparisonDDLStatements(params TypeAndName[] objects)
+        protected override string GetComparisonDDLStatements(params TypeSchemaAndName[] objects)
         {
-            var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5));
-            var database = conn.Value.Database;
-            Func<string, string, object> ExecuteScalar = (db, sql) =>
-            {
-                if (string.Compare(database, db) != 0) conn.Value.ChangeDatabase(db);
-                try
-                {
-                    using (var cmd = conn.Value.CreateCommand())
-                    {
-                        cmd.CommandText = sql;
-                        cmd.CommandType = CommandType.Text;
-                        return cmd.ExecuteScalar();
-                    }
-                }
-                finally
-                {
-                    if (string.Compare(database, db) != 0) conn.Value.ChangeDatabase(database);
-                }
-            };
-            var sb = new StringBuilder();
+            Object<DbConnection> conn = null;
+            string database = null;
+            
             try
             {
+                conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5));
+                database = conn.Value.Database;
+
+                var sb = new StringBuilder();
                 foreach (var obj in objects)
                 {
                     if (sb.Length > 0) sb.Append("\r\n");
-                    var tb = _commonUtils.GetTableByEntity(obj.entityType);
-                    if (tb == null) throw new Exception($"类型 {obj.entityType.FullName} 不可迁移");
-                    if (tb.Columns.Any() == false) throw new Exception($"类型 {obj.entityType.FullName} 不可迁移，可迁移属性0个");
+                    var tb = obj.tableSchema;
+                    if (tb == null) throw new Exception(CoreErrorStrings.S_Type_IsNot_Migrable(obj.tableSchema.Type.FullName));
+                    if (tb.Columns.Any() == false) throw new Exception(CoreErrorStrings.S_Type_IsNot_Migrable_0Attributes(obj.tableSchema.Type.FullName));
                     var tbname = _commonUtils.SplitTableName(tb.DbName);
                     if (tbname?.Length == 1) tbname = new[] { database, tbname[0] };
 
@@ -118,17 +108,17 @@ namespace FreeSql.Odbc.MySql
                         }
                     }
 
-                    if (string.Compare(tbname[0], database, true) != 0 && ExecuteScalar(database, _commonUtils.FormatSql(" select 1 from information_schema.schemata where schema_name={0}", tbname[0])) == null) //创建数据库
+                    if (string.Compare(tbname[0], database, true) != 0 && LocalExecuteScalar(database, _commonUtils.FormatSql(" select 1 from information_schema.schemata where schema_name={0}", tbname[0])) == null) //创建数据库
                         sb.Append($"CREATE DATABASE IF NOT EXISTS ").Append(_commonUtils.QuoteSqlName(tbname[0])).Append(" default charset utf8 COLLATE utf8_general_ci;\r\n");
 
                     var sbalter = new StringBuilder();
                     var istmpatler = false; //创建临时表，导入数据，删除旧表，修改
-                    if (ExecuteScalar(tbname[0], _commonUtils.FormatSql(" SELECT 1 FROM information_schema.TABLES WHERE table_schema={0} and table_name={1}", tbname)) == null)
+                    if (LocalExecuteScalar(tbname[0], _commonUtils.FormatSql(" SELECT 1 FROM information_schema.TABLES WHERE table_schema={0} and table_name={1}", tbname)) == null)
                     { //表不存在
                         if (tboldname != null)
                         {
-                            if (string.Compare(tboldname[0], tbname[0], true) != 0 && ExecuteScalar(database, _commonUtils.FormatSql(" select 1 from information_schema.schemata where schema_name={0}", tboldname[0])) == null ||
-                                ExecuteScalar(tboldname[0], _commonUtils.FormatSql(" SELECT 1 FROM information_schema.TABLES WHERE table_schema={0} and table_name={1}", tboldname)) == null)
+                            if (string.Compare(tboldname[0], tbname[0], true) != 0 && LocalExecuteScalar(database, _commonUtils.FormatSql(" select 1 from information_schema.schemata where schema_name={0}", tboldname[0])) == null ||
+                                LocalExecuteScalar(tboldname[0], _commonUtils.FormatSql(" SELECT 1 FROM information_schema.TABLES WHERE table_schema={0} and table_name={1}", tboldname)) == null)
                                 //数据库或表不存在
                                 tboldname = null;
                         }
@@ -150,25 +140,25 @@ namespace FreeSql.Odbc.MySql
                                 foreach (var tbcol in tb.Primarys) sb.Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(", ");
                                 sb.Remove(sb.Length - 2, 2).Append("),");
                             }
-                            sb.Remove(sb.Length - 1, 1);
-                            sb.Append("\r\n) Engine=InnoDB");
-                            if (string.IsNullOrEmpty(tb.Comment) == false)
-                                sb.Append(" Comment=").Append(_commonUtils.FormatSql("{0}", tb.Comment));
-                            sb.Append(";\r\n");
-                            //创建表的索引
+                            //创建表的索引，感谢 @mafeng8，这样写可以支持自增不是主键的情况
                             foreach (var uk in tb.Indexes)
                             {
-                                sb.Append("CREATE ");
+                                sb.Append(" \r\n  ");
                                 if (uk.IsUnique) sb.Append("UNIQUE ");
-                                sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(createTableName).Append("(");
+                                sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ReplaceIndexName(uk.Name, tbname[1]))).Append("(");
                                 foreach (var tbcol in uk.Columns)
                                 {
                                     sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
                                     if (tbcol.IsDesc) sb.Append(" DESC");
                                     sb.Append(", ");
                                 }
-                                sb.Remove(sb.Length - 2, 2).Append(");\r\n");
+                                sb.Remove(sb.Length - 2, 2).Append("),");
                             }
+                            sb.Remove(sb.Length - 1, 1);
+                            sb.Append("\r\n) Engine=InnoDB");
+                            if (string.IsNullOrEmpty(tb.Comment) == false)
+                                sb.Append(" Comment=").Append(_commonUtils.FormatSql("{0}", tb.Comment));
+                            sb.Append(";\r\n");
                             continue;
                         }
                         //如果新表，旧表在一个数据库下，直接修改表名
@@ -190,7 +180,8 @@ a.column_name,
 a.column_type,
 case when a.is_nullable = 'YES' then 1 else 0 end 'is_nullable',
 case when locate('auto_increment', a.extra) > 0 then 1 else 0 end 'is_identity',
-a.column_comment 'comment'
+a.column_comment 'comment',
+a.column_key
 from information_schema.columns a
 where a.table_schema in ({0}) and a.table_name in ({1})", tboldname ?? tbname);
                     var ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
@@ -205,16 +196,21 @@ where a.table_schema in ({0}) and a.table_name in ({1})", tboldname ?? tbname);
                             is_nullable = string.Concat(a[2]) == "1",
                             is_identity = string.Concat(a[3]) == "1",
                             is_unsigned = string.Concat(a[1]).EndsWith(" unsigned"),
-                            comment = string.Concat(a[4])
+                            comment = string.Concat(a[4]),
+                            is_primary = string.Concat(a[5]) == "PRI",
                         };
                     }, StringComparer.CurrentCultureIgnoreCase);
 
                     if (istmpatler == false)
                     {
-                        var existsPrimary = ExecuteScalar(tbname[0], _commonUtils.FormatSql(" select 1 from information_schema.key_column_usage where table_schema={0} and table_name={1} and constraint_name = 'PRIMARY' limit 1", tbname));
+                        var csPrimarys = tb.Primarys.Select(a => a.Attribute.Name).ToArray();
+                        var dbPrimarys = tbstruct.Where(a => a.Value.is_primary).Select(a => a.Key).ToArray();
+                        if (!csPrimarys.Any() && dbPrimarys.Any()) sbalter.Append("ALTER TABLE ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append(" DROP PRIMARY KEY").Append(";\r\n");
+                        if (csPrimarys.Any() && !dbPrimarys.Any()) sbalter.Append("ALTER TABLE ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append(" ADD PRIMARY KEY(").Append(string.Join(", ", tb.Primarys.Select(tbcol => _commonUtils.QuoteSqlName(tbcol.Attribute.Name)))).Append(")").Append(";\r\n");
+                        else if (csPrimarys.Any() && (csPrimarys.Length != dbPrimarys.Length || csPrimarys.Except(dbPrimarys, StringComparer.CurrentCultureIgnoreCase).Any())) sbalter.Append("ALTER TABLE ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append(" DROP PRIMARY KEY, ADD PRIMARY KEY(").Append(string.Join(", ", tb.Primarys.Select(tbcol => _commonUtils.QuoteSqlName(tbcol.Attribute.Name)))).Append(")").Append(";\r\n");
+
                         foreach (var tbcol in tb.ColumnsByPosition)
                         {
-                            var isIdentityChanged = tbcol.Attribute.IsIdentity == true && tbcol.Attribute.DbType.IndexOf("AUTO_INCREMENT", StringComparison.CurrentCultureIgnoreCase) == -1;
                             if (tbstruct.TryGetValue(tbcol.Attribute.Name, out var tbstructcol) ||
                                 string.IsNullOrEmpty(tbcol.Attribute.OldName) == false && tbstruct.TryGetValue(tbcol.Attribute.OldName, out tbstructcol))
                             {
@@ -241,7 +237,6 @@ where a.table_schema in ({0}) and a.table_name in ({1})", tboldname ?? tbname);
                                     sbalter.Append("ALTER TABLE ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append(" MODIFY ").Append(_commonUtils.QuoteSqlName(tbstructcol.column)).Append(" ").Append(tbcol.Attribute.DbType);
                                     if (string.IsNullOrEmpty(tbcol.Comment) == false) sbalter.Append(" COMMENT ").Append(_commonUtils.FormatSql("{0}", tbcol.Comment ?? ""));
                                     if (tbcol.Attribute.IsIdentity == true && tbcol.Attribute.DbType.IndexOf("AUTO_INCREMENT", StringComparison.CurrentCultureIgnoreCase) == -1) sbalter.Append(" AUTO_INCREMENT");
-                                    if (tbcol.Attribute.IsIdentity == true) sbalter.Append(existsPrimary == null ? "" : ", DROP PRIMARY KEY").Append(", ADD PRIMARY KEY(").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(")");
                                     sbalter.Append(";\r\n");
                                 }
                                 if (string.Compare(tbstructcol.column, tbcol.Attribute.OldName, true) == 0)
@@ -250,7 +245,6 @@ where a.table_schema in ({0}) and a.table_name in ({1})", tboldname ?? tbname);
                                     sbalter.Append("ALTER TABLE ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append(" CHANGE COLUMN ").Append(_commonUtils.QuoteSqlName(tbstructcol.column)).Append(" ").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(" ").Append(tbcol.Attribute.DbType);
                                     if (string.IsNullOrEmpty(tbcol.Comment) == false) sbalter.Append(" COMMENT ").Append(_commonUtils.FormatSql("{0}", tbcol.Comment ?? ""));
                                     if (tbcol.Attribute.IsIdentity == true && tbcol.Attribute.DbType.IndexOf("AUTO_INCREMENT", StringComparison.CurrentCultureIgnoreCase) == -1) sbalter.Append(" AUTO_INCREMENT");
-                                    if (tbcol.Attribute.IsIdentity == true) sbalter.Append(existsPrimary == null ? "" : ", DROP PRIMARY KEY").Append(", ADD PRIMARY KEY(").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(")");
                                     sbalter.Append(";\r\n");
                                 }
                                 continue;
@@ -260,14 +254,13 @@ where a.table_schema in ({0}) and a.table_name in ({1})", tboldname ?? tbname);
                             if (tbcol.Attribute.IsNullable == false && tbcol.DbDefaultValue != "NULL" && tbcol.Attribute.IsIdentity == false) sbalter.Append(" DEFAULT ").Append(tbcol.DbDefaultValue);
                             if (string.IsNullOrEmpty(tbcol.Comment) == false) sbalter.Append(" COMMENT ").Append(_commonUtils.FormatSql("{0}", tbcol.Comment ?? ""));
                             if (tbcol.Attribute.IsIdentity == true && tbcol.Attribute.DbType.IndexOf("AUTO_INCREMENT", StringComparison.CurrentCultureIgnoreCase) == -1) sbalter.Append(" AUTO_INCREMENT");
-                            if (tbcol.Attribute.IsIdentity == true) sbalter.Append(existsPrimary == null ? "" : ", DROP PRIMARY KEY").Append(", ADD PRIMARY KEY(").Append(_commonUtils.QuoteSqlName(tbcol.Attribute.Name)).Append(")");
                             sbalter.Append(";\r\n");
                         }
                         var dsuksql = _commonUtils.FormatSql(@"
 select 
 a.column_name,
 a.index_name 'index_id',
-0 'IsDesc',
+case when a.collation = 'D' then 1 else 0 end 'IsDesc',
 case when a.non_unique = 0 then 1 else 0 end 'IsUnique'
 from information_schema.statistics a
 where a.table_schema IN ({0}) and a.table_name IN ({1}) and a.index_name <> 'PRIMARY'", tboldname ?? tbname);
@@ -275,13 +268,14 @@ where a.table_schema IN ({0}) and a.table_name IN ({1}) and a.index_name <> 'PRI
                         foreach (var uk in tb.Indexes)
                         {
                             if (string.IsNullOrEmpty(uk.Name) || uk.Columns.Any() == false) continue;
-                            var dsukfind1 = dsuk.Where(a => string.Compare(a[1], uk.Name, true) == 0).ToArray();
+                            var ukname = ReplaceIndexName(uk.Name, tbname[1]);
+                            var dsukfind1 = dsuk.Where(a => string.Compare(a[1], ukname, true) == 0).ToArray();
                             if (dsukfind1.Any() == false || dsukfind1.Length != uk.Columns.Length || dsukfind1.Where(a => (a[3] == "1") == uk.IsUnique && uk.Columns.Where(b => string.Compare(b.Column.Attribute.Name, a[0], true) == 0 && (a[2] == "1") == b.IsDesc).Any()).Count() != uk.Columns.Length)
                             {
-                                if (dsukfind1.Any()) sbalter.Append("DROP INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append(";\r\n");
+                                if (dsukfind1.Any()) sbalter.Append("DROP INDEX ").Append(_commonUtils.QuoteSqlName(ukname)).Append(" ON ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append(";\r\n");
                                 sbalter.Append("CREATE ");
                                 if (uk.IsUnique) sbalter.Append("UNIQUE ");
-                                sbalter.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append("(");
+                                sbalter.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ukname)).Append(" ON ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append("(");
                                 foreach (var tbcol in uk.Columns)
                                 {
                                     sbalter.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -298,12 +292,13 @@ where a.table_schema IN ({0}) and a.table_name IN ({1}) and a.index_name <> 'PRI
                         if (dbcomment != (tb.Comment ?? ""))
                             sb.Append("ALTER TABLE ").Append(_commonUtils.QuoteSqlName(tbname[0], tbname[1])).Append(" COMMENT ").Append(" ").Append(_commonUtils.FormatSql("{0}", tb.Comment ?? "")).Append(";\r\n");
 
-                        sb.Append(sbalter);
+                        sb.Insert(0, sbalter);
                         continue;
                     }
 
                     //创建临时表，数据导进临时表，然后删除原表，将临时表改名为原表名
-                    var tablename = tboldname == null ? _commonUtils.QuoteSqlName(tbname[0], tbname[1]) : _commonUtils.QuoteSqlName(tboldname[0], tboldname[1]);
+                    var newtablename = _commonUtils.QuoteSqlName(tbname[0], tbname[1]);
+                    var tablename = tboldname == null ? newtablename : _commonUtils.QuoteSqlName(tboldname[0], tboldname[1]);
                     var tmptablename = _commonUtils.QuoteSqlName(tbname[0], $"FreeSqlTmp_{tbname[1]}");
                     //创建临时表
                     sb.Append("CREATE TABLE IF NOT EXISTS ").Append(tmptablename).Append(" ( ");
@@ -357,7 +352,7 @@ where a.table_schema IN ({0}) and a.table_name IN ({1}) and a.index_name <> 'PRI
                     {
                         sb.Append("CREATE ");
                         if (uk.IsUnique) sb.Append("UNIQUE ");
-                        sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(tablename).Append("(");
+                        sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ReplaceIndexName(uk.Name, tbname[1]))).Append(" ON ").Append(newtablename).Append("(");
                         foreach (var tbcol in uk.Columns)
                         {
                             sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -373,12 +368,46 @@ where a.table_schema IN ({0}) and a.table_name IN ({1}) and a.index_name <> 'PRI
             {
                 try
                 {
-                    conn.Value.ChangeDatabase(database);
+                    if (string.IsNullOrEmpty(database) == false)
+                        conn.Value.ChangeDatabase(database);
                     _orm.Ado.MasterPool.Return(conn);
                 }
                 catch
                 {
                     _orm.Ado.MasterPool.Return(conn, true);
+                }
+            }
+
+            object LocalExecuteScalar(string db, string sql)
+            {
+                if (string.Compare(database, db) != 0) conn.Value.ChangeDatabase(db);
+                try
+                {
+                    using (var cmd = conn.Value.CreateCommand())
+                    {
+                        cmd.CommandText = sql;
+                        cmd.CommandType = CommandType.Text;
+                        var before = new Aop.CommandBeforeEventArgs(cmd);
+                        this._orm?.Aop.CommandBeforeHandler?.Invoke(this._orm, before);
+                        Exception afterException = null;
+                        try
+                        {
+                            return cmd.ExecuteScalar();
+                        }
+                        catch (Exception ex)
+                        {
+                            afterException = ex;
+                            throw;
+                        }
+                        finally
+                        {
+                            this._orm?.Aop.CommandAfterHandler?.Invoke(this._orm, new Aop.CommandAfterEventArgs(before, afterException, null));
+                        }
+                    }
+                }
+                finally
+                {
+                    if (string.Compare(database, db) != 0) conn.Value.ChangeDatabase(database);
                 }
             }
         }
@@ -389,7 +418,6 @@ where a.table_schema IN ({0}) and a.table_name IN ({1}) and a.index_name <> 'PRI
             var scripts = ddl.Split(new string[] { ";\r\n" }, StringSplitOptions.None).Where(a => string.IsNullOrEmpty(a.Trim()) == false).ToArray();
 
             if (scripts.Any() == false) return 0;
-            if (scripts.Length == 1) return base.ExecuteDDLStatements(ddl);
 
             var affrows = 0;
             foreach (var script in scripts)

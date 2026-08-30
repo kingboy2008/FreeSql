@@ -33,14 +33,14 @@ public static class FreeSqlExtensionsLinqSql
     /// <returns></returns>
     public static ISelect<T1> RestoreToSelect<T1>(this IQueryable<T1> that) where T1 : class
     {
-        var queryable = that as QueryableProvider<T1, T1> ?? throw new Exception($"无法将 IQueryable<{typeof(T1).Name}> 转换为 ISelect<{typeof(T1).Name}>，因为他的实现不是 FreeSql.Extensions.Linq.QueryableProvider");
+        var queryable = that as QueryableProvider<T1, T1> ?? throw new Exception(CoreErrorStrings.S_CannotBeConverted_To_ISelect(typeof(T1).Name));
         return queryable._select;
     }
 
     /// <summary>
     /// 【linq to sql】专用扩展方法，不建议直接使用
     /// </summary>
-    public static ISelect<TReturn> Select<T1, TReturn>(this ISelect<T1> that, Expression<Func<T1, TReturn>> select) where T1 : class where TReturn : class
+    public static ISelect<TReturn> Select<T1, TReturn>(this ISelect<T1> that, Expression<Func<T1, TReturn>> select)
     {
         var s1p = that as Select1Provider<T1>;
         if (typeof(TReturn) == typeof(T1)) return that as ISelect<TReturn>;
@@ -48,7 +48,7 @@ public static class FreeSqlExtensionsLinqSql
         s1p._selectExpression = select.Body;
         if (s1p._orm.CodeFirst.IsAutoSyncStructure)
             (s1p._orm.CodeFirst as CodeFirstProvider)._dicSycedTryAdd(typeof(TReturn)); //._dicSyced.TryAdd(typeof(TReturn), true);
-        var ret = s1p._orm.Select<TReturn>() as Select1Provider<TReturn>;
+        var ret = (s1p._orm as BaseDbProvider).CreateSelectProvider<TReturn>(null) as Select1Provider<TReturn>;
         Select0Provider.CopyData(s1p, ret, null);
         return ret;
     }
@@ -70,7 +70,7 @@ public static class FreeSqlExtensionsLinqSql
     internal static void InternalJoin2<T1>(Select1Provider<T1> s1p, LambdaExpression outerKeySelector, LambdaExpression innerKeySelector, LambdaExpression resultSelector) where T1 : class
     {
         s1p._tables[0].Parameter = resultSelector.Parameters[0];
-        s1p._commonExpression.ExpressionLambdaToSql(outerKeySelector, new CommonExpression.ExpTSC { _tables = s1p._tables });
+        s1p._commonExpression.ExpressionLambdaToSql(outerKeySelector, new CommonExpression.ExpTSC { _tables = s1p._tables, _tableRule = s1p._tableRule });
         s1p.InternalJoin(Expression.Lambda(typeof(Func<,,>).MakeGenericType(typeof(T1), innerKeySelector.Parameters[0].Type, typeof(bool)),
             Expression.Equal(outerKeySelector.Body, innerKeySelector.Body),
             new[] { outerKeySelector.Parameters[0], innerKeySelector.Parameters[0] }
@@ -141,4 +141,13 @@ public static class FreeSqlExtensionsLinqSql
     {
         return that;
     }
+
+    /// <summary>
+    /// 【linq to sql】专用扩展方法，不建议直接使用
+    /// </summary>
+    public static ISelect<T1> ThenBy<T1, TMember>(this ISelect<T1> that, Expression<Func<T1, TMember>> column) where T1 : class => that.OrderBy(column);
+    /// <summary>
+    /// 【linq to sql】专用扩展方法，不建议直接使用
+    /// </summary>
+    public static ISelect<T1> ThenByDescending<T1, TMember>(this ISelect<T1> that, Expression<Func<T1, TMember>> column) where T1 : class => that.OrderByDescending(column);
 }

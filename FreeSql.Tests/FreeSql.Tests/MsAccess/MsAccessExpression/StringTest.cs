@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -51,15 +51,28 @@ namespace FreeSql.Tests.MsAccessExpression
         }
 
         [Fact]
+        public void First()
+        {
+            Assert.Equal('x', select.First(a => "x1".First()));
+            Assert.Equal('z', select.First(a => "z1".First()));
+        }
+        [Fact]
+        public void FirstOrDefault()
+        {
+            Assert.Equal('x', select.First(a => "x1".FirstOrDefault()));
+            Assert.Equal('z', select.First(a => "z1".FirstOrDefault()));
+        }
+
+        [Fact]
         public void Format()
         {
-            var item = g.msaccess.GetRepository<Topic>().Insert(new Topic { Clicks = 101, Title = "�����й���101", CreateTime = DateTime.Parse("2020-7-5") });
+            var item = g.msaccess.GetRepository<Topic>().Insert(new Topic { Clicks = 101, Title = "我是中国人101", CreateTime = DateTime.Parse("2020-7-5") });
             var sql = select.WhereDynamic(item).ToSql(a => new
             {
                 str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}",
                 str2 = string.Format("{0}x{0}z-{1}{2}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title)
             });
-            Assert.Equal($@"SELECT 'x'+cstr((a.[Id] + 1))+'z-'+(format(a.[CreateTime],'yyyyMM'))+''+(a.[Title])+'' as as1, ''+cstr((a.[Id] + 1))+'x'+cstr((a.[Id] + 1))+'z-'+(format(a.[CreateTime],'yyyyMM'))+''+(a.[Title])+'' as as2 
+            Assert.Equal($@"SELECT 'x'+iif(isnull(cstr((a.[Id] + 1))), '', cstr((a.[Id] + 1)))+'z-'+iif(isnull(format(a.[CreateTime],'yyyyMM')), '', format(a.[CreateTime],'yyyyMM'))+''+iif(isnull(a.[Title]), '', a.[Title])+'' as as1, ''+iif(isnull(cstr((a.[Id] + 1))), '', cstr((a.[Id] + 1)))+'x'+iif(isnull(cstr((a.[Id] + 1))), '', cstr((a.[Id] + 1)))+'z-'+iif(isnull(format(a.[CreateTime],'yyyyMM')), '', format(a.[CreateTime],'yyyyMM'))+''+iif(isnull(a.[Title]), '', a.[Title])+'' as as2 
 FROM [tb_topic] a 
 WHERE (a.[Id] = {item.Id})", sql);
 
@@ -71,6 +84,31 @@ WHERE (a.[Id] = {item.Id})", sql);
             Assert.NotNull(item2);
             Assert.Equal($"x{item.Id + 1}z-{item.CreateTime.ToString("yyyyMM")}{item.Title}", item2.str);
             Assert.Equal(string.Format("{0}x{0}z-{1}{2}", item.Id + 1, item.CreateTime.ToString("yyyyMM"), item.Title), item2.str2);
+        }
+
+        [Fact]
+        public void Format4()
+        {
+            //3个 {} 时，Arguments 解析出来是分开的
+            //4个 {} 时，Arguments[1] 只能解析这个出来，然后里面是 NewArray []
+            var item = g.msaccess.GetRepository<Topic>().Insert(new Topic { Clicks = 101, Title = "我是中国人101", CreateTime = DateTime.Parse("2020-7-5") });
+            var sql = select.WhereDynamic(item).ToSql(a => new
+            {
+                str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}{a.Title}",
+                str2 = string.Format("{0}x{0}z-{1}{2}{3}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title, a.Title)
+            });
+            Assert.Equal($@"SELECT 'x'+iif(isnull(cstr((a.[Id] + 1))), '', cstr((a.[Id] + 1)))+'z-'+iif(isnull(format(a.[CreateTime],'yyyyMM')), '', format(a.[CreateTime],'yyyyMM'))+''+iif(isnull(a.[Title]), '', a.[Title])+''+iif(isnull(a.[Title]), '', a.[Title])+'' as as1, ''+iif(isnull(cstr((a.[Id] + 1))), '', cstr((a.[Id] + 1)))+'x'+iif(isnull(cstr((a.[Id] + 1))), '', cstr((a.[Id] + 1)))+'z-'+iif(isnull(format(a.[CreateTime],'yyyyMM')), '', format(a.[CreateTime],'yyyyMM'))+''+iif(isnull(a.[Title]), '', a.[Title])+''+iif(isnull(a.[Title]), '', a.[Title])+'' as as2 
+FROM [tb_topic] a 
+WHERE (a.[Id] = {item.Id})", sql);
+
+            var item2 = select.WhereDynamic(item).First(a => new
+            {
+                str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}{a.Title}",
+                str2 = string.Format("{0}x{0}z-{1}{2}{3}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title, a.Title)
+            });
+            Assert.NotNull(item2);
+            Assert.Equal($"x{item.Id + 1}z-{item.CreateTime.ToString("yyyyMM")}{item.Title}{item.Title}", item2.str);
+            Assert.Equal(string.Format("{0}x{0}z-{1}{2}{3}", item.Id + 1, item.CreateTime.ToString("yyyyMM"), item.Title, item.Title), item2.str2);
         }
 
         [Fact]
@@ -211,6 +249,28 @@ WHERE (a.[Id] = {item.Id})", sql);
             //SELECT a.`Id` as1, a.`Clicks` as2, a.`TypeGuid` as3, a__Type.`Guid` as4, a__Type.`ParentId` as5, a__Type.`Name` as6, a.`Title` as7, a.`CreateTime` as8
             //FROM `tb_topic` a, `TestTypeInfo` a__Type
             //WHERE((concat(a.`Title`, 'aaa')) LIKE concat('%', a__Type.`Name`, '%'))
+
+            var guid = Guid.NewGuid().ToString("N");
+            var fsql = g.msaccess;
+            fsql.Insert(new Topic
+            {
+                Title = $"Test{guid}Contains01"
+            }).ExecuteAffrows();
+
+            var ret = fsql.Select<Topic>().Where(a => a.Title.Contains(guid)).ToList();
+            Assert.NotEmpty(ret);
+            Assert.Equal($"Test{guid}Contains01", ret[0].Title);
+
+
+            list.Add(select.Where(a => a.Title.Contains("%")).ToList());
+            list.Add(select.Where(a => a.Title.Contains(a.Title + "%")).ToList());
+            list.Add(select.Where(a => a.Title.Contains(a.Title + 1 + "%")).ToList());
+            list.Add(select.Where(a => a.Title.Contains(a.Type.Name + "%")).ToList());
+
+            list.Add(select.Where(a => (a.Title + "aaa").Contains("aaa" + "%")).ToList());
+            list.Add(select.Where(a => (a.Title + "aaa").Contains(a.Title + "%")).ToList());
+            list.Add(select.Where(a => (a.Title + "aaa").Contains(a.Title + 1 + "%")).ToList());
+            list.Add(select.Where(a => (a.Title + "aaa").Contains(a.Type.Name + "%")).ToList());
         }
         [Fact]
         public void ToLower()
@@ -645,7 +705,7 @@ WHERE (a.[Id] = {item.Id})", sql);
         [Fact]
         public void Replace()
         {
-            //System.Data.OleDb.OleDbException : ����ʽ�� 'replace' ����δ���塣
+            //System.Data.OleDb.OleDbException : 表达式中 'replace' 函数未定义。
             //var data = new List<object>();
             //data.Add(select.Where(a => a.Title.Replace("a", "b") == "aaa").ToList());
             //data.Add(select.Where(a => a.Title.Replace("a", "b").Replace("b", "c") == a.Title).ToList());

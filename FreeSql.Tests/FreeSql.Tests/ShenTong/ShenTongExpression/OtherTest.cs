@@ -76,7 +76,7 @@ namespace FreeSql.Tests.ShenTongExpression
         public void Array()
         {
             //g.shentong.Aop.CurdAfter = (s, e) => {
-            //	Trace.WriteLine(e.CurdType + ": " + e.ElapsedMilliseconds + "ms " + e.Sql.Replace("\n", ""));
+            //    Trace.WriteLine(e.CurdType + ": " + e.ElapsedMilliseconds + "ms " + e.Sql.Replace("\n", ""));
             //};
             IEnumerable<int> testlinqlist = new List<int>(new[] { 1, 2, 3 });
             var testlinq = select.Where(a => testlinqlist.Contains(a.testFieldInt)).ToList();
@@ -174,7 +174,7 @@ namespace FreeSql.Tests.ShenTongExpression
             public TableAllTypeEnumType2 testFieldEnum2 { get; set; }
             public TableAllTypeEnumType2? testFieldEnum2Nullable { get; set; }
 
-            ///* array */
+            //* array */
             //public bool[] testFieldBoolArray { get; set; }
             //public sbyte[] testFieldSByteArray { get; set; }
             //public short[] testFieldShortArray { get; set; }

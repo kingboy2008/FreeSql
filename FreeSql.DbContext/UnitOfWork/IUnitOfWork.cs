@@ -10,6 +10,9 @@ namespace FreeSql
     /// </summary>
     public interface IUnitOfWork : IDisposable
     {
+        /// <summary>
+        /// 该对象 Select/Delete/Insert/Update/InsertOrUpdate 与工作单元事务保持一致，可省略传递 WithTransaction
+        /// </summary>
         IFreeSql Orm { get; }
 
         /// <summary>
@@ -26,29 +29,13 @@ namespace FreeSql
         void Rollback();
 
         /// <summary>
-        /// 是否启用工作单元
-        /// </summary>
-        [Obsolete("即将删除（保留到2020-12-01），请改用 UnitOfWorkManager 的方式管理事务 https://github.com/dotnetcore/FreeSql/issues/289")] 
-        bool Enable { get; }
-
-        /// <summary>
-        /// 禁用工作单元
-        /// <exception cref="Exception"></exception>
-        /// <para></para>
-        /// 若已开启事务（已有Insert/Update/Delete操作），调用此方法将发生异常，建议在执行逻辑前调用
-        /// </summary>
-        [Obsolete("即将删除（保留到2020-12-01），请改用 UnitOfWorkManager 的方式管理事务 https://github.com/dotnetcore/FreeSql/issues/289")]
-        void Close();
-
-        /// <summary>
-        /// 开启工作单元
-        /// </summary>
-        [Obsolete("即将删除（保留到2020-12-01），请改用 UnitOfWorkManager 的方式管理事务 https://github.com/dotnetcore/FreeSql/issues/289")]
-        void Open();
-
-        /// <summary>
         /// 工作单元内的实体变化跟踪
         /// </summary>
         DbContext.EntityChangeReport EntityChangeReport { get; }
+
+        /// <summary>
+        /// 用户自定义的状态数据，便于扩展
+        /// </summary>
+        Dictionary<string, object> States { get; }
     }
 }

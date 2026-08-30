@@ -1,4 +1,5 @@
-﻿using FreeSql.Internal.Model;
+﻿using FreeSql.DataAnnotations;
+using FreeSql.Internal.Model;
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -6,7 +7,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Data;
 using System.Data.Common;
-using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -17,15 +17,16 @@ using System.Threading.Tasks;
 
 namespace FreeSql.Internal.CommonProvider
 {
-
     public abstract partial class Select0Provider
     {
         public int _limit, _skip;
         public string _select = "SELECT ", _orderby, _groupby, _having;
         public StringBuilder _where = new StringBuilder();
         public List<DbParameter> _params = new List<DbParameter>();
+        public List<DbParameter> _paramsInit;
         public List<SelectTableInfo> _tables = new List<SelectTableInfo>();
         public List<Func<Type, string, string>> _tableRules = new List<Func<Type, string, string>>();
+        public Func<Type, string, string> _tableRule => _tableRules?.FirstOrDefault();
         public Func<Type, string, string> _aliasRule;
         public string _tosqlAppendContent;
         public StringBuilder _join = new StringBuilder();
@@ -34,37 +35,135 @@ namespace FreeSql.Internal.CommonProvider
         public CommonExpression _commonExpression;
         public DbTransaction _transaction;
         public DbConnection _connection;
+        public int _commandTimeout = 0;
         public Action<object> _trackToList;
         public List<Action<object>> _includeToList = new List<Action<object>>();
 #if net40
 #else
-        public List<Func<object, Task>> _includeToListAsync = new List<Func<object, Task>>();
+        public List<Func<object, CancellationToken, Task>> _includeToListAsync = new List<Func<object, CancellationToken, Task>>();
 #endif
+        public Dictionary<string, NativeTuple<MemberExpression[], TableRef>> _includeInfo = new Dictionary<string, NativeTuple<MemberExpression[], TableRef>>();
         public bool _distinct;
         public Expression _selectExpression;
-        public List<LambdaExpression> _whereCascadeExpression = new List<LambdaExpression>();
         public List<GlobalFilter.Item> _whereGlobalFilter;
+        public Func<bool> _cancel;
+        public bool _is_AsTreeCte;
+        public BaseDiyMemberExpression _diymemexpWithTempQuery;
+        public Func<DbTransaction> _resolveHookTransaction;
+        public bool _groupBySelfFlag = false;
+        public bool _isIncluded = false;
+
+        public bool IsDefaultSqlContent => _tables.Count == 1 && _tables[0].Table?.AsTableImpl == null &&
+            _distinct == false && _is_AsTreeCte == false && _where.Length == 0 && _join.Length == 0 &&
+            string.IsNullOrWhiteSpace(_orderby) && string.IsNullOrWhiteSpace(_groupby) && string.IsNullOrWhiteSpace(_tosqlAppendContent) &&
+            _aliasRule == null && _selectExpression == null;
+
+        public Select0Provider()
+        {
+            _paramsInit = _params;
+        }
 
         int _disposeCounter;
         ~Select0Provider()
         {
             if (Interlocked.Increment(ref _disposeCounter) != 1) return;
-            _where.Clear();
-            _params.Clear();
-            _tables.Clear();
-            _tableRules.Clear();
-            _join.Clear();
+            _where?.Clear();
+            if (_paramsInit == _params) _params?.Clear(); //子查询与主查询共享，并发导致错误清除了主查询参数化信息 https://github.com/dotnetcore/FreeSql/issues/1155
+            _tables?.Clear();
+            _tableRules?.Clear();
+            _join?.Clear();
             _trackToList = null;
-            _includeToList.Clear();
+            _includeToList?.Clear();
 #if net40
 #else
-            _includeToListAsync.Clear();
+            _includeToListAsync?.Clear();
 #endif
+            _includeInfo?.Clear();
             _selectExpression = null;
-            _whereCascadeExpression.Clear();
-            _whereGlobalFilter = _orm.GlobalFilter.GetFilters();
-            _whereCascadeExpression.AddRange(_whereGlobalFilter.Select(a => a.Where));
+            _whereGlobalFilter?.Clear();
+            _cancel = null;
+            _diymemexpWithTempQuery = null;
         }
+
+        public abstract string ToSqlBase(string field = null);
+        public abstract void AsTableBase(Func<Type, string, string> tableRule);
+
+        internal virtual List<TReturn> ToListMrPrivate<TReturn>(string sql, ReadAnonymousTypeAfInfo af, ReadAnonymousTypeOtherInfo[] otherData)
+        {
+            var ret = new List<TReturn>();
+            if (_cancel?.Invoke() == true) return ret;
+            var dbParms = _params.ToArray();
+            var type = typeof(TReturn);
+            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
+            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
+            var retCount = 0;
+            Exception exception = null;
+            try
+            {
+                _orm.Ado.ExecuteReader(_connection, _transaction, fetch =>
+                {
+                    var index = -1;
+                    ret.Add((TReturn)_commonExpression.ReadAnonymous(af.map, fetch.Object, ref index, false, null, retCount, af.fillIncludeMany, af.fillSubSelectMany));
+                    if (otherData != null)
+                        foreach (var other in otherData)
+                            other.retlist.Add(_commonExpression.ReadAnonymous(other.read, fetch.Object, ref index, false, null, retCount, null, null));
+                    retCount++;
+                }, CommandType.Text, sql, _commandTimeout, dbParms);
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+                throw;
+            }
+            finally
+            {
+                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
+                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
+            }
+            _trackToList?.Invoke(ret);
+            return ret;
+        }
+        #region async
+#if !net40
+        internal virtual async Task<List<TReturn>> ToListMrPrivateAsync<TReturn>(string sql, ReadAnonymousTypeAfInfo af, ReadAnonymousTypeOtherInfo[] otherData, CancellationToken cancellationToken)
+        {
+            var ret = new List<TReturn>();
+            if (_cancel?.Invoke() == true) return ret;
+            var dbParms = _params.ToArray();
+            var type = typeof(TReturn);
+            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
+            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
+            var retCount = 0;
+            Exception exception = null;
+            try
+            {
+                await _orm.Ado.ExecuteReaderAsync(_connection, _transaction, fetch =>
+                {
+                    var index = -1;
+                    ret.Add((TReturn)_commonExpression.ReadAnonymous(af.map, fetch.Object, ref index, false, null, retCount, af.fillIncludeMany, af.fillSubSelectMany));
+                    if (otherData != null)
+                        foreach (var other in otherData)
+                            other.retlist.Add(_commonExpression.ReadAnonymous(other.read, fetch.Object, ref index, false, null, retCount, null, null));
+                    retCount++;
+                    return Task.FromResult(false);
+                }, CommandType.Text, sql, _commandTimeout, dbParms, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+                throw;
+            }
+            finally
+            {
+                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
+                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
+            }
+            _trackToList?.Invoke(ret);
+            return ret;
+        }
+#endif
+        #endregion
+        
 
         public static void CopyData(Select0Provider from, Select0Provider to, ReadOnlyCollection<ParameterExpression> lambParms)
         {
@@ -79,7 +178,20 @@ namespace FreeSql.Internal.CommonProvider
             to._params = new List<DbParameter>(from._params.ToArray());
 
             if (lambParms == null)
-                to._tables = new List<SelectTableInfo>(from._tables.ToArray());
+            {
+                var fromParentTables = from._tables.Where(a => a.Type == SelectTableInfoType.Parent).ToList();
+                var fromTables = fromParentTables.Any() ? from._tables.Where(a => a.Type != SelectTableInfoType.Parent).ToList() : from._tables;
+                if (to._tables.Count <= fromTables.Count)
+                    to._tables = new List<SelectTableInfo>(fromTables);
+                else
+                {
+                    to._tables = new List<SelectTableInfo>(to._tables);
+                    for (var a = 0; a < fromTables.Count; a++)
+                        to._tables[a] = fromTables[a];
+                }
+                if (fromParentTables.Any())
+                    to._tables.AddRange(fromParentTables);
+            }
             else
             {
                 var findedIndexs = new List<int>();
@@ -117,16 +229,419 @@ namespace FreeSql.Internal.CommonProvider
             to._includeToList = new List<Action<object>>(from._includeToList.ToArray());
 #if net40
 #else
-            to._includeToListAsync = new List<Func<object, Task>>(from._includeToListAsync.ToArray());
+            to._includeToListAsync = new List<Func<object, CancellationToken, Task>>(from._includeToListAsync.ToArray());
 #endif
             to._distinct = from._distinct;
             to._selectExpression = from._selectExpression;
-            to._whereCascadeExpression = new List<LambdaExpression>(from._whereCascadeExpression.ToArray());
             to._whereGlobalFilter = new List<GlobalFilter.Item>(from._whereGlobalFilter.ToArray());
+            to._cancel = from._cancel;
+            to._is_AsTreeCte = from._is_AsTreeCte;
+            to._diymemexpWithTempQuery = from._diymemexpWithTempQuery;
+            to._resolveHookTransaction = from._resolveHookTransaction;
+            to._groupBySelfFlag = from._groupBySelfFlag;
+            to._isIncluded = from._isIncluded;
+        }
+
+        internal class WithTempQueryParser : BaseDiyMemberExpression
+        {
+            public List<InsideInfo> _insideSelectList = new List<InsideInfo>();
+            public List<SelectTableInfo> _outsideTable = new List<SelectTableInfo>();
+            public WithTempQueryParser(Select0Provider insideSelect, SelectGroupingProvider insideSelectGroup, Expression selector, SelectTableInfo outsideTable)
+            {
+                if (selector != null)
+                {
+                    _insideSelectList.Add(new InsideInfo(insideSelect, insideSelectGroup, selector));
+                    _outsideTable.Add(outsideTable);
+                }
+            }
+            public class InsideInfo
+            {
+                public Select0Provider InsideSelect { get; }
+                public SelectGroupingProvider InsideSelectGroup { get; }
+                public CommonExpression InsideComonExp;
+                public string InsideField { get; }
+                public ReadAnonymousTypeAfInfo InsideAf { get; }
+                public ReadAnonymousTypeInfo InsideMap { get; }
+
+                public InsideInfo(Select0Provider insideSelect, SelectGroupingProvider insideSelectGroup, Expression selector)
+                {
+                    InsideSelect = insideSelect;
+                    InsideSelectGroup = insideSelectGroup;
+
+                    InsideMap = new ReadAnonymousTypeInfo();
+                    var field = new StringBuilder();
+                    var index = CommonExpression.ReadAnonymousFieldAsCsName; //AsProperty
+
+                    if (selector != null)
+                    {
+                        if (insideSelectGroup != null)
+                            InsideSelect._commonExpression.ReadAnonymousField(null, insideSelect._tableRule, field, InsideMap, ref index, selector, insideSelect, InsideSelectGroup, null, null, null, false);
+                        else if (insideSelect != null)
+                            InsideSelect._commonExpression.ReadAnonymousField(insideSelect._tables, InsideSelect._tableRule, field, InsideMap, ref index, selector, null, insideSelect._diymemexpWithTempQuery, insideSelect._whereGlobalFilter, null, null, false); //不走 DTO 映射，不处理 IncludeMany
+                    }
+                    InsideField = field.Length > 0 ? field.Remove(0, 2).ToString() : null;
+                    InsideAf = new ReadAnonymousTypeAfInfo(InsideMap, "*");
+                    field.Clear();
+                    var childs = InsideMap.GetAllChilds();
+                    var duplicateNames = childs.GroupBy(a => a.DbNestedField).Where(a => a.Count() > 1).ToList();
+                    if (duplicateNames.Count > 0)
+                    {
+                        foreach (var duplicateName in duplicateNames)
+                        {
+                            var dupmapIdx = 0;
+                            foreach (var dupmap in duplicateName)
+                            {
+                                if (++dupmapIdx == 1) continue;
+                                var newfield = insideSelect._commonUtils.TrimQuoteSqlName(dupmap.DbNestedField);
+                                while (InsideField.Contains($"{newfield}{dupmapIdx}"))
+                                    ++dupmapIdx;
+                                dupmap.DbNestedField = insideSelect._commonUtils.QuoteSqlName($"{newfield}{dupmapIdx}");
+                            }
+                        }
+                        foreach (var child in childs)
+                            field.Append(", ").Append(child.DbField).Append(InsideSelect._commonExpression.EndsWithDbNestedField(child.DbField, child.DbNestedField) ? "" : InsideSelect._commonUtils.FieldAsAlias(child.DbNestedField));
+                        InsideField = field.Length > 0 ? field.Remove(0, 2).ToString() : null;
+                        field.Clear();
+                    }
+                }
+            }
+
+            public WithTempQueryParser Append(Select0Provider select, SelectTableInfo outsideTable)
+            {
+                //select is ISelect<T>
+                if (outsideTable != null && select?._diymemexpWithTempQuery is WithTempQueryParser withTempQuery)
+                {
+                    _insideSelectList.Add(withTempQuery._insideSelectList[0]);
+                    _outsideTable.Add(outsideTable);
+                }
+                return this;
+            }
+
+            public SelectTableInfo ParseExpMatchedTable { get; private set; }
+            public override string ParseExp(Expression[] members)
+            {
+                ParseExpMapResult = null;
+                ParseExpMatchedTable = GetOutsideSelectTable(members.FirstOrDefault()?.GetParameter());
+                if (ParseExpMatchedTable == null) return null;
+
+                var insideIndex = _outsideTable.FindIndex(a => a == ParseExpMatchedTable);
+                if (insideIndex == -1)
+                {
+                    ParseExpMatchedTable = null;
+                    return null;
+                }
+                var insideData = _insideSelectList[insideIndex];
+                if (members.Any() == false)
+                {
+                    ParseExpMapResult = insideData.InsideMap;
+                    return $"{ParseExpMatchedTable.Alias}.{insideData.InsideMap.DbNestedField}";
+                }
+                var read = insideData.InsideMap;
+                if (members.Length == 1 && members[0] == ParseExpMatchedTable.Parameter)
+                {
+                    ParseExpMapResult = read;
+                    return $"{ParseExpMatchedTable.Alias}.{read.DbNestedField}";
+                }
+                for (var a = members[0] == ParseExpMatchedTable.Parameter ? 1 : 0; a < members.Length; a++)
+                {
+                    read = read.Childs.Where(z => z.CsName == (members[a] as MemberExpression)?.Member.Name).FirstOrDefault();
+                    if (read == null) return null;
+                }
+                ParseExpMapResult = read;
+                return $"{ParseExpMatchedTable.Alias}.{read.DbNestedField}";
+            }
+            public SelectTableInfo GetOutsideSelectTable(ParameterExpression parameterExp)
+            {
+                if (parameterExp == null) return null;
+                var find = _outsideTable.Where(a => a.Parameter == parameterExp).ToArray();
+                if (find.Length == 1) return find[0];
+                find = _outsideTable.Where(a => a.Table.Type == parameterExp.Type).ToArray();
+                if (find.Length == 1) return find[0];
+                find = _outsideTable.Where(a => a.Alias == parameterExp.Name).ToArray();
+                if (find.Length == 1) return find[0];
+                return null;
+            }
+        }
+
+        public static MethodInfo _methodSqlExtInternalRawField = typeof(SqlExt).GetMethod("InternalRawField", BindingFlags.NonPublic | BindingFlags.Static);
+        public static MethodInfo _methodSqlExtInternalRawSql = typeof(SqlExt).GetMethod("InternalRawSql", BindingFlags.NonPublic | BindingFlags.Static);
+        public Expression ConvertStringPropertyToExpression(string property, bool fromFirstTable = false)
+        {
+            if (string.IsNullOrEmpty(property)) return null;
+            var field = property.Split('.').Select(a => a.Trim()).ToArray();
+            Expression exp = null;
+
+            if (field.Length == 1 && fromFirstTable == false)
+            {
+                if (_tables.Count == 1 && _tables[0].Table?.Type == typeof(object))
+                {
+                    //配合 .Select<object>().WithSql("...").WhereDynamicFilter(...)
+                    var tb = _tables[0];
+                    tb.Parameter = Expression.Parameter(tb.Table.Type, tb.Alias);
+                    var rawField = $"{tb.Alias}.{_commonUtils.QuoteSqlName(field[0])}";
+                    return Expression.Call(_methodSqlExtInternalRawField, Expression.Constant(rawField, typeof(string)));
+                }
+
+                foreach (var tb in _tables)
+                {
+                    if (tb.Table.ColumnsByCs.TryGetValue(field[0], out var col) &&
+                        tb.Table.Properties.TryGetValue(field[0], out var prop))
+                    {
+                        tb.Parameter = Expression.Parameter(tb.Table.Type, tb.Alias);
+                        exp = Expression.MakeMemberAccess(tb.Parameter, prop);
+                        break;
+                    }
+                }
+                if (exp == null) throw new Exception(CoreErrorStrings.Cannot_Match_Property(property));
+            }
+            else
+            {
+                var firstTb = _tables[0];
+                var firstTbs = _tables.Where(a => a.AliasInit == field[0]).ToArray();
+                if (firstTbs.Length == 1) firstTb = firstTbs[0];
+                else if (fromFirstTable == false)
+                {
+                    firstTbs = _tables.Where(a => a.Table.Type.Name == field[0]).ToArray();
+                    if (firstTbs.Length == 1) firstTb = firstTbs[0];
+                }
+
+                firstTb.Parameter = Expression.Parameter(firstTb.Table.Type, firstTb.Alias);
+                var currentType = firstTb.Table.Type;
+                Expression currentExp = firstTb.Parameter;
+
+                for (var x = firstTbs.Length == 1 ? 1 : 0; x < field.Length; x++)
+                {
+                    var tmp1 = field[x];
+                    if (_commonUtils.GetTableByEntity(currentType).Properties.TryGetValue(tmp1, out var prop) == false)
+                        throw new ArgumentException($"{currentType.DisplayCsharp()} {CoreErrorStrings.NotFound_PropertyName(tmp1)}");
+                    currentType = prop.PropertyType;
+                    currentExp = Expression.MakeMemberAccess(currentExp, prop);
+                }
+                exp = currentExp;
+            }
+            return exp;
+        }
+
+        public static MethodInfo _MethodDataReaderIsDBNull = typeof(DbDataReader).GetMethod("IsDBNull", new Type[] { typeof(int) });
+        public static Dictionary<Type, MethodInfo> _dicMethodDataReaderGetValue = new Dictionary<Type, MethodInfo>
+        {
+            [typeof(bool)] = typeof(DbDataReader).GetMethod("GetBoolean", new Type[] { typeof(int) }),
+            [typeof(int)] = typeof(DbDataReader).GetMethod("GetInt32", new Type[] { typeof(int) }),
+            [typeof(long)] = typeof(DbDataReader).GetMethod("GetInt64", new Type[] { typeof(int) }),
+            [typeof(double)] = typeof(DbDataReader).GetMethod("GetDouble", new Type[] { typeof(int) }),
+            [typeof(float)] = typeof(DbDataReader).GetMethod("GetFloat", new Type[] { typeof(int) }),
+            [typeof(decimal)] = typeof(DbDataReader).GetMethod("GetDecimal", new Type[] { typeof(int) }),
+            [typeof(DateTime)] = typeof(DbDataReader).GetMethod("GetDateTime", new Type[] { typeof(int) }),
+            [typeof(string)] = typeof(DbDataReader).GetMethod("GetString", new Type[] { typeof(int) }),
+            //[typeof(Guid)] = typeof(DbDataReader).GetMethod("GetGuid", new Type[] { typeof(int) }) 有些驱动不兼容
+        };
+        public static Dictionary<DataType, Dictionary<Type, MethodInfo>> _dicMethodDataReaderGetValueOverride = new Dictionary<DataType, Dictionary<Type, MethodInfo>>();
+
+        public static MethodInfo MethodStringContains = typeof(string).GetMethod("Contains", new[] { typeof(string) });
+        public static MethodInfo MethodStringStartsWith = typeof(string).GetMethod("StartsWith", new[] { typeof(string) });
+        public static MethodInfo MethodStringEndsWith = typeof(string).GetMethod("EndsWith", new[] { typeof(string) });
+        static ConcurrentDictionary<string, MethodInfo> MethodEnumerableDic = new ConcurrentDictionary<string, MethodInfo>();
+        public static MethodInfo GetMethodEnumerable(string methodName) => MethodEnumerableDic.GetOrAdd(methodName, et =>
+        {
+            var methods = typeof(Enumerable).GetMethods().Where(a => a.Name == et);
+            if (et == "Select")
+                return methods.Where(a => a.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>)).FirstOrDefault();
+            return methods.FirstOrDefault();
+        });
+
+        public List<NativeTuple<string, DbParameter[], ReadAnonymousTypeOtherInfo>> _SameSelectPendingShareData;
+        internal Select0Provider SetSameSelectPendingShareData(List<NativeTuple<string, DbParameter[], ReadAnonymousTypeOtherInfo>> data)
+        {
+            _SameSelectPendingShareData = data;
+            //_SameSelectPendingShareData?.ForEach(a => _params.AddRange(a?.Item2 ?? new DbParameter[0])); #1205 SqlServer BUG 参数化重复
+            if (_SameSelectPendingShareData?.Any() == true)
+            {
+                var last = _SameSelectPendingShareData.Last();
+                if (last == null && _SameSelectPendingShareData.Count > 1) last = _SameSelectPendingShareData[_SameSelectPendingShareData.Count - 2];
+                if (last != null)
+                    _params.AddRange(last.Item2 ?? new DbParameter[0]);
+            }
+            return this;
+        }
+        internal bool SameSelectPending(ref string sql, ReadAnonymousTypeOtherInfo csspsod)
+        {
+            if (_SameSelectPendingShareData != null)
+            {
+                if (_SameSelectPendingShareData.Any() == false || _SameSelectPendingShareData.Last() != null)
+                {
+                    _SameSelectPendingShareData.Add(NativeTuple.Create(sql, _params.ToArray(), csspsod));
+                    return true;
+                }
+                _SameSelectPendingShareData[_SameSelectPendingShareData.Count - 1] = NativeTuple.Create(sql, _params.ToArray(), csspsod);
+                var sbSql = new StringBuilder(); //last == null flush flag
+                for (var a = 0; a < _SameSelectPendingShareData.Count; a++)
+                    sbSql.Append("\r\nUNION ALL\r\nselect * from (").Append(_SameSelectPendingShareData[a].Item1).Append(") ftb");
+                sbSql.Remove(0, 13);
+                if (_SameSelectPendingShareData.Count == 1) sbSql.Remove(0, 15).Remove(sbSql.Length - 5, 5);
+                sql = sbSql.ToString();
+                //dbParms = cssps.Select(a => a.Item2).SelectMany(a => a).ToArray();
+                sbSql.Clear();
+            }
+            return false;
+        }
+        internal static Expression SetSameSelectPendingShareDataWithExpression(Expression exp, List<NativeTuple<string, DbParameter[], ReadAnonymousTypeOtherInfo>> data)
+        {
+            var callExp = exp as MethodCallExpression;
+            var callExpStack = new Stack<MethodCallExpression>();
+            callExpStack.Push(callExp);
+            callExp = callExp.Object as MethodCallExpression; //忽略第一个方法
+            while (callExp != null)
+            {
+                if (callExp != null && typeof(ISelect0).IsAssignableFrom(callExp.Type))
+                {
+                    callExpStack.Push(callExp);
+                    callExp = callExp.Object as MethodCallExpression;
+                    continue;
+                }
+                return exp;
+            }
+            callExp = callExpStack.Pop();
+            Expression newExp = callExp.Object != null && callExp.Object.NodeType == ExpressionType.MemberAccess && typeof(ISelect0).IsAssignableFrom(callExp.Object.Type) ?
+                new ReplaceMemberExpressionVisitor().Replace(callExp, callExp.Object, Expression.Convert(Expression.Call(
+                    Expression.Convert(callExp.Object, typeof(Select0Provider)),
+                    typeof(Select0Provider).GetMethod(nameof(SetSameSelectPendingShareData), BindingFlags.NonPublic | BindingFlags.Instance), 
+                    Expression.Constant(data, typeof(List<NativeTuple<string, DbParameter[], ReadAnonymousTypeOtherInfo>>))), callExp.Object.Type)
+                ) :
+                Expression.Convert(Expression.Call(
+                    Expression.Convert(callExp, typeof(Select0Provider)),
+                    typeof(Select0Provider).GetMethod(nameof(SetSameSelectPendingShareData), BindingFlags.NonPublic | BindingFlags.Instance),
+                    Expression.Constant(data, typeof(List<NativeTuple<string, DbParameter[], ReadAnonymousTypeOtherInfo>>))
+                ), callExp.Type);
+            while (callExpStack.Any())
+            {
+                callExp = callExpStack.Pop();
+                newExp = Expression.Call(
+                    newExp,
+                    callExp.Method,
+                    callExp.Arguments
+                );
+            }
+            return newExp;
+        }
+
+        public ReadAnonymousTypeAfInfo GetExpressionField(Expression newexp, FieldAliasOptions fieldAlias = FieldAliasOptions.AsIndex)
+        {
+            var map = new ReadAnonymousTypeInfo();
+            var field = new StringBuilder();
+            var index = fieldAlias == FieldAliasOptions.AsProperty ? CommonExpression.ReadAnonymousFieldAsCsName :
+             (fieldAlias == FieldAliasOptions.AsEmpty ? CommonExpression.ReadAnonymousFieldAsCsNameGroupBy : 0);
+
+            _commonExpression.ReadAnonymousField(_tables, _tableRule, field, map, ref index, newexp, this, _diymemexpWithTempQuery, _whereGlobalFilter, null, null, true);
+            return new ReadAnonymousTypeAfInfo(map, field.Length > 0 ? field.Remove(0, 2).ToString() : null);
+        }
+        public string GetNestSelectSql(Expression select, string affield, Func<string, string> ToSql)
+        {
+            var allMemExps = new FindAllMemberExpressionVisitor(this);
+            allMemExps.Visit(select);
+            var fieldAlias = new Dictionary<string, bool>();
+            var fieldReplaced = new Dictionary<string, bool>();
+            var field = new StringBuilder();
+            foreach (var memExp in allMemExps.Result)
+            {
+                var gef = GetExpressionField(memExp.Item1, FieldAliasOptions.AsProperty);
+                var geffield = gef.field;
+                if (fieldReplaced.ContainsKey(geffield)) continue;
+                fieldReplaced.Add(geffield, true);
+
+                field.Append(", ").Append(gef.field);
+                if (fieldAlias.ContainsKey(memExp.Item2.Attribute.Name))
+                {
+                    field.Append(_commonUtils.FieldAsAlias($"aas{fieldAlias.Count}"));
+                    affield = affield.Replace(geffield, $"ftba.aas{fieldAlias.Count}");
+                }
+                else
+                {
+                    fieldAlias.Add(memExp.Item2.Attribute.Name, true);
+                    affield = affield.Replace(geffield, $"ftba.{string.Join(".", geffield.Split('.').Skip(1))}");
+                }
+            }
+
+            var sql = ToSql(field.Remove(0, 2).ToString());
+            sql = $"{_select} {affield} FROM ( \r\n    {sql.Replace("\r\n", "\r\n    ")}\r\n) ftba";
+            field.Clear();
+            return sql;
+        }
+        public class FindAllMemberExpressionVisitor : ExpressionVisitor
+        {
+            public List<NativeTuple<MemberExpression, ColumnInfo>> Result { get; set; } = new List<NativeTuple<MemberExpression, ColumnInfo>>();
+            Select0Provider _select;
+            public FindAllMemberExpressionVisitor(Select0Provider select) => _select = select;
+
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                var exps = new Stack<Expression>();
+                Expression exp = node;
+                while (exp != null)
+                {
+                    switch (exp.NodeType)
+                    {
+                        case ExpressionType.Parameter:
+                            exps.Push(exp);
+                            exp = null;
+                            continue;
+                        case ExpressionType.MemberAccess:
+                            exps.Push(exp);
+                            exp = (exp as MemberExpression)?.Expression;
+                            continue;
+                    }
+                    return base.VisitMember(node);
+                }
+                if (exps.Any() == false) return base.VisitMember(node);
+                var firstExp = exps.Pop() as ParameterExpression;
+                if (firstExp == null) return base.VisitMember(node);
+                var tb = _select._tables.Find(a => a.Parameter == firstExp)?.Table;
+                if (tb == null) return base.VisitMember(node);
+
+                if (tb.Columns.Any() == false && _select._diymemexpWithTempQuery != null) //匿名类，嵌套查询 DTO
+                {
+                    Result.Add(NativeTuple.Create(node, default(ColumnInfo)));
+                    return node;
+                }
+
+                while (exps.Any())
+                {
+                    var memExp = exps.Pop() as MemberExpression;
+                    if (tb.ColumnsByCs.TryGetValue(memExp.Member.Name, out var trycol) && exps.Any() == false)
+                    {
+                        Result.Add(NativeTuple.Create(node, trycol));
+                        return node;
+                    }
+                    if (tb.Properties.ContainsKey(memExp.Member.Name))
+                    {
+                        tb = _select._commonUtils.GetTableByEntity(memExp.Type);
+                        if (tb == null) return base.VisitMember(node);
+                    }
+                }
+                return base.VisitMember(node);
+            }
+        }
+        public class ReplaceMemberExpressionVisitor : ExpressionVisitor
+        {
+            Expression _findExp;
+            Expression _replaceExp;
+            public Expression Replace(Expression exp, Expression find, Expression replace) // object repval)
+            {
+                _findExp = find;
+                _replaceExp = replace;
+                //_replaceExp = Expression.Constant(repval, find.Type);
+                return this.Visit(exp);
+            }
+            protected override Expression VisitMember(MemberExpression node)
+            {
+                if (_findExp == node) return _replaceExp;
+                if (node.Expression?.NodeType == ExpressionType.Parameter && node.Expression == _findExp)
+                    return Expression.Property(_replaceExp, node.Member.Name);
+                return base.VisitMember(node);
+            }
         }
     }
 
-    public abstract partial class Select0Provider<TSelect, T1> : Select0Provider, ISelect0<TSelect, T1> where TSelect : class where T1 : class
+    public abstract partial class Select0Provider<TSelect, T1> : Select0Provider, ISelect0<TSelect, T1> where TSelect : class
     {
         public Select0Provider(IFreeSql orm, CommonUtils commonUtils, CommonExpression commonExpression, object dywhere)
         {
@@ -134,7 +649,7 @@ namespace FreeSql.Internal.CommonProvider
             _commonUtils = commonUtils;
             _commonExpression = commonExpression;
             _tables.Add(new SelectTableInfo { Table = _commonUtils.GetTableByEntity(typeof(T1)), Alias = "a", On = null, Type = SelectTableInfoType.From });
-            this.Where(_commonUtils.WhereObject(_tables.First().Table, "a.", dywhere));
+            this.Where(_commonUtils.WhereObject(_tables.First().Table, "a.", dywhere, _params));
             if (_orm.CodeFirst.IsAutoSyncStructure && typeof(T1) != typeof(object)) _orm.CodeFirst.SyncStructure<T1>();
         }
 
@@ -144,10 +659,16 @@ namespace FreeSql.Internal.CommonProvider
             return this as TSelect;
         }
 
+        public TSelect Cancel(Func<bool> cancel)
+        {
+            _cancel = cancel;
+            return this as TSelect;
+        }
+
         public TSelect WithTransaction(DbTransaction transaction)
         {
             _transaction = transaction;
-            _connection = _transaction?.Connection;
+            if (transaction != null) _connection = transaction.Connection;
             return this as TSelect;
         }
         public TSelect WithConnection(DbConnection connection)
@@ -156,30 +677,14 @@ namespace FreeSql.Internal.CommonProvider
             _connection = connection;
             return this as TSelect;
         }
-
-        public bool Any()
+        public TSelect WithParameters(List<DbParameter> parameters)
         {
-            this.Limit(1);
-            return this.ToList<int>($"{1}{_commonUtils.FieldAsAlias("as1")}").Sum() > 0; //这里的 Sum 为了分表查询
+            if (parameters != null) _params = parameters;
+            return this as TSelect;
         }
-
-        public long Count()
+        public TSelect CommandTimeout(int timeout)
         {
-            var tmpOrderBy = _orderby;
-            _orderby = null; //解决 select count(1) from t order by id 这样的 SQL 错误
-            try
-            {
-                return this.ToList<int>($"count(1){_commonUtils.FieldAsAlias("as1")}").Sum(); //这里的 Sum 为了分表查询
-            }
-            finally
-            {
-                _orderby = tmpOrderBy;
-            }
-        }
-
-        public TSelect Count(out long count)
-        {
-            count = this.Count();
+            _commandTimeout = timeout;
             return this as TSelect;
         }
 
@@ -213,25 +718,29 @@ namespace FreeSql.Internal.CommonProvider
         }
         public TSelect RightJoin(Expression<Func<T1, bool>> exp)
         {
-            if (exp == null) return this as TSelect; _tables[0].Parameter = exp.Parameters[0];
+            if (exp == null) return this as TSelect;
+            _tables[0].Parameter = exp.Parameters[0];
             return this.InternalJoin(exp?.Body, SelectTableInfoType.RightJoin);
         }
         public TSelect LeftJoin<T2>(Expression<Func<T1, T2, bool>> exp)
         {
             if (exp == null) return this as TSelect;
             _tables[0].Parameter = exp.Parameters[0];
+            if (_tables.Count > 1 && _tables[1].Table.Type == typeof(T2)) _tables[1].Parameter = exp.Parameters[1];
             return this.InternalJoin(exp?.Body, SelectTableInfoType.LeftJoin);
         }
         public TSelect InnerJoin<T2>(Expression<Func<T1, T2, bool>> exp)
         {
             if (exp == null) return this as TSelect;
             _tables[0].Parameter = exp.Parameters[0];
+            if (_tables.Count > 1 && _tables[1].Table.Type == typeof(T2)) _tables[1].Parameter = exp.Parameters[1];
             return this.InternalJoin(exp?.Body, SelectTableInfoType.InnerJoin);
         }
         public TSelect RightJoin<T2>(Expression<Func<T1, T2, bool>> exp)
         {
             if (exp == null) return this as TSelect;
             _tables[0].Parameter = exp.Parameters[0];
+            if (_tables.Count > 1 && _tables[1].Table.Type == typeof(T2)) _tables[1].Parameter = exp.Parameters[1];
             return this.InternalJoin(exp?.Body, SelectTableInfoType.RightJoin);
         }
 
@@ -260,6 +769,14 @@ namespace FreeSql.Internal.CommonProvider
         {
             if (string.IsNullOrEmpty(sql)) return this as TSelect;
             _join.Append(" \r\n").Append(sql);
+
+            //fsql.Select<User1, UserGroup>().RawJoin("FULL JOIN UserGroup b ON b.id = a.GroupId").ToSql((a, b) => new { user = a, group = b });
+            for (var a = 1; a < _tables.Count; a++)
+            {
+                var tb = _tables[a];
+                if (sql.Contains($" {tb.Table.DbName} ") || sql.Contains($" {_commonUtils.QuoteSqlName(tb.Table.DbName)} "))
+                    tb.Type = SelectTableInfoType.RawJoin;
+            }
             return this as TSelect;
         }
 
@@ -279,7 +796,11 @@ namespace FreeSql.Internal.CommonProvider
         public TSelect OrderBy(bool condition, string sql, object parms = null)
         {
             if (condition == false) return this as TSelect;
-            if (string.IsNullOrEmpty(sql)) _orderby = null;
+            if (string.IsNullOrEmpty(sql))
+            {
+                _orderby = null;
+                return this as TSelect;
+            }
             var isnull = string.IsNullOrEmpty(_orderby);
             _orderby = string.Concat(isnull ? " \r\nORDER BY " : "", _orderby, isnull ? "" : ", ", sql);
             if (parms != null) _params.AddRange(_commonUtils.GetDbParamtersByObject(sql, parms));
@@ -289,6 +810,13 @@ namespace FreeSql.Internal.CommonProvider
         {
             this.Skip(Math.Max(0, pageNumber - 1) * pageSize);
             return this.Limit(pageSize) as TSelect;
+        }
+
+        public TSelect Page(BasePagingInfo pagingInfo)
+        {
+            pagingInfo.Count = this.Count();
+            this.Skip(Math.Max(0, pagingInfo.PageNumber - 1) * pagingInfo.PageSize);
+            return this.Limit(pagingInfo.PageSize) as TSelect;
         }
 
         public TSelect Skip(int offset)
@@ -304,667 +832,119 @@ namespace FreeSql.Internal.CommonProvider
             return this as TSelect;
         }
 
-        public DataTable ToDataTable(string field = null)
-        {
-            var sql = this.ToSql(field);
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            DataTable ret = null;
-            Exception exception = null;
-            try
-            {
-                ret = _orm.Ado.ExecuteDataTable(_connection, _transaction, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            return ret;
-        }
-
-        public List<TTuple> ToList<TTuple>(string field)
-        {
-            var sql = this.ToSql(field);
-            var type = typeof(TTuple);
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new List<TTuple>();
-            var flagStr = $"ToListField:{field}";
-            Exception exception = null;
-            try
-            {
-                _orm.Ado.ExecuteReader(_connection, _transaction, dr =>
-                {
-                    var read = Utils.ExecuteArrayRowReadClassOrTuple(flagStr, type, null, dr, 0, _commonUtils);
-                    ret.Add((TTuple)read.Value);
-                }, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            return ret;
-        }
-        internal List<T1> ToListAfPrivate(string sql, GetAllFieldExpressionTreeInfo af, ReadAnonymousTypeOtherInfo[] otherData)
-        {
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new List<T1>();
-            Exception exception = null;
-            try
-            {
-                _orm.Ado.ExecuteReader(_connection, _transaction, dr =>
-                {
-                    ret.Add(af.Read(_orm, dr));
-                    if (otherData != null)
-                    {
-                        var idx = af.FieldCount - 1;
-                        foreach (var other in otherData)
-                            other.retlist.Add(_commonExpression.ReadAnonymous(other.read, dr, ref idx, false, null));
-                    }
-                }, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            foreach (var include in _includeToList) include?.Invoke(ret);
-            _trackToList?.Invoke(ret);
-            return ret;
-        }
-        internal List<T1> ToListPrivate(GetAllFieldExpressionTreeInfo af, ReadAnonymousTypeOtherInfo[] otherData)
-        {
-            string sql = null;
-            if (otherData?.Length > 0)
-            {
-                var sbField = new StringBuilder().Append(af.Field);
-                foreach (var other in otherData)
-                    sbField.Append(other.field);
-                sql = this.ToSql(sbField.ToString());
-            }
-            else
-                sql = this.ToSql(af.Field);
-
-            return ToListAfPrivate(sql, af, otherData);
-        }
-        #region ToChunk
-        internal void ToListAfChunkPrivate(int chunkSize, Action<List<T1>> chunkDone, string sql, GetAllFieldExpressionTreeInfo af, ReadAnonymousTypeOtherInfo[] otherData)
-        {
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new List<T1>();
-            var retCount = 0;
-            Exception exception = null;
-            var checkDoneTimes = 0;
-            try
-            {
-                _orm.Ado.ExecuteReader(_connection, _transaction, dr =>
-                {
-                    ret.Add(af.Read(_orm, dr));
-                    retCount++;
-                    if (otherData != null)
-                    {
-                        var idx = af.FieldCount - 1;
-                        foreach (var other in otherData)
-                            other.retlist.Add(_commonExpression.ReadAnonymous(other.read, dr, ref idx, false, null));
-                    }
-                    if (chunkSize > 0 && chunkSize == ret.Count)
-                    {
-                        checkDoneTimes++;
-
-                        foreach (var include in _includeToList) include?.Invoke(ret);
-                        _trackToList?.Invoke(ret);
-                        chunkDone(ret);
-                        
-
-                        ret.Clear();
-                        if (otherData != null)
-                            foreach (var other in otherData)
-                                other.retlist.Clear();
-                    }
-                }, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, retCount);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            if (ret.Any() || checkDoneTimes == 0)
-            {
-                foreach (var include in _includeToList) include?.Invoke(ret);
-                _trackToList?.Invoke(ret);
-                chunkDone(ret);
-            }
-        }
-        internal void ToListChunkPrivate(int chunkSize, Action<List<T1>> chunkDone, GetAllFieldExpressionTreeInfo af, ReadAnonymousTypeOtherInfo[] otherData)
-        {
-            string sql = null;
-            if (otherData?.Length > 0)
-            {
-                var sbField = new StringBuilder().Append(af.Field);
-                foreach (var other in otherData)
-                    sbField.Append(other.field);
-                sql = this.ToSql(sbField.ToString());
-            }
-            else
-                sql = this.ToSql(af.Field);
-
-            ToListAfChunkPrivate(chunkSize, chunkDone, sql, af, otherData);
-        }
-        public void ToChunk(int size, Action<List<T1>> done, bool includeNestedMembers = false)
-        {
-            if (_selectExpression != null) throw new ArgumentException("Chunk 功能之前不可使用 Select");
-            this.ToListChunkPrivate(size, done, includeNestedMembers == false ? this.GetAllFieldExpressionTreeLevel2() : this.GetAllFieldExpressionTreeLevelAll(), null);
-        }
-        #endregion
-        public Dictionary<TKey, T1> ToDictionary<TKey>(Func<T1, TKey> keySelector) => ToDictionary(keySelector, a => a);
-        public Dictionary<TKey, TElement> ToDictionary<TKey, TElement>(Func<T1, TKey> keySelector, Func<T1, TElement> elementSelector)
-        {
-            if (keySelector == null) throw new ArgumentNullException(nameof(keySelector));
-            if (elementSelector == null) throw new ArgumentNullException(nameof(elementSelector));
-            var af = this.GetAllFieldExpressionTreeLevel2();
-            var sql = this.ToSql(af.Field);
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new Dictionary<TKey, TElement>();
-            Exception exception = null;
-            try
-            {
-                _orm.Ado.ExecuteReader(_connection, _transaction, dr =>
-                {
-                    var item = af.Read(_orm, dr);
-                    ret.Add(keySelector(item), elementSelector(item));
-                }, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            if (typeof(TElement) == typeof(T1)) _trackToList?.Invoke(ret.Values);
-            return ret;
-        }
-        public virtual List<T1> ToList(bool includeNestedMembers = false)
-        {
-            if (_selectExpression != null) return this.InternalToList<T1>(_selectExpression);
-            return this.ToListPrivate(includeNestedMembers == false ? this.GetAllFieldExpressionTreeLevel2() : this.GetAllFieldExpressionTreeLevelAll(), null);
-        }
-        public T1 ToOne()
-        {
-            this.Limit(1);
-            return this.ToList().FirstOrDefault();
-        }
-
-        public T1 First() => this.ToOne();
-
-        internal List<TReturn> ToListMrPrivate<TReturn>(string sql, ReadAnonymousTypeAfInfo af, ReadAnonymousTypeOtherInfo[] otherData)
-        {
-            var type = typeof(TReturn);
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new List<TReturn>();
-            Exception exception = null;
-            try
-            {
-                _orm.Ado.ExecuteReader(_connection, _transaction, dr =>
-                {
-                    var index = -1;
-                    ret.Add((TReturn)_commonExpression.ReadAnonymous(af.map, dr, ref index, false, null));
-                    if (otherData != null)
-                        foreach (var other in otherData)
-                            other.retlist.Add(_commonExpression.ReadAnonymous(other.read, dr, ref index, false, null));
-                }, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            if (typeof(TReturn) == typeof(T1))
-                foreach (var include in _includeToList) include?.Invoke(ret);
-            _trackToList?.Invoke(ret);
-            return ret;
-        }
-        internal List<TReturn> ToListMapReaderPrivate<TReturn>(ReadAnonymousTypeAfInfo af, ReadAnonymousTypeOtherInfo[] otherData)
-        {
-            string sql = null;
-            if (otherData?.Length > 0)
-            {
-                var sbField = new StringBuilder().Append(af.field);
-                foreach (var other in otherData)
-                    sbField.Append(other.field);
-                sql = this.ToSql(sbField.ToString());
-            }
-            else
-                sql = this.ToSql(af.field);
-
-            return ToListMrPrivate<TReturn>(sql, af, otherData);
-        }
-        protected List<TReturn> ToListMapReader<TReturn>(ReadAnonymousTypeAfInfo af) => ToListMapReaderPrivate<TReturn>(af, null);
-        protected ReadAnonymousTypeAfInfo GetExpressionField(Expression newexp, FieldAliasOptions fieldAlias = FieldAliasOptions.AsIndex)
-        {
-            var map = new ReadAnonymousTypeInfo();
-            var field = new StringBuilder();
-            var index = fieldAlias == FieldAliasOptions.AsProperty ? CommonExpression.ReadAnonymousFieldAsCsName : 0;
-
-            _commonExpression.ReadAnonymousField(_tables, field, map, ref index, newexp, null, _whereCascadeExpression, true);
-            return new ReadAnonymousTypeAfInfo(map, field.Length > 0 ? field.Remove(0, 2).ToString() : null);
-        }
-        static ConcurrentDictionary<string, GetAllFieldExpressionTreeInfo> _dicGetAllFieldExpressionTree = new ConcurrentDictionary<string, GetAllFieldExpressionTreeInfo>();
-        public class GetAllFieldExpressionTreeInfo
-        {
-            public string Field { get; set; }
-            public int FieldCount { get; set; }
-            public Func<IFreeSql, DbDataReader, T1> Read { get; set; }
-        }
-        public GetAllFieldExpressionTreeInfo GetAllFieldExpressionTreeLevelAll()
-        {
-            return _dicGetAllFieldExpressionTree.GetOrAdd($"*{string.Join("+", _tables.Select(a => $"{_orm.Ado.DataType}-{a.Table.DbName}-{a.Alias}-{a.Type}"))}", s =>
-            {
-                var type = _tables.First().Table.TypeLazy ?? _tables.First().Table.Type;
-                var ormExp = Expression.Parameter(typeof(IFreeSql), "orm");
-                var rowExp = Expression.Parameter(typeof(DbDataReader), "row");
-                var returnTarget = Expression.Label(type);
-                var retExp = Expression.Variable(type, "ret");
-                var dataIndexExp = Expression.Variable(typeof(int), "dataIndex");
-                var readExp = Expression.Variable(typeof(Utils.RowInfo), "read");
-                var readExpValue = Expression.MakeMemberAccess(readExp, Utils.RowInfo.PropertyValue);
-                var readExpDataIndex = Expression.MakeMemberAccess(readExp, Utils.RowInfo.PropertyDataIndex);
-                var blockExp = new List<Expression>();
-                blockExp.AddRange(new Expression[] {
-                    Expression.Assign(retExp, type.InternalNewExpression()),
-                    Expression.Assign(dataIndexExp, Expression.Constant(0))
-                });
-                //typeof(Topic).GetMethod("get_Type").IsVirtual
-
-                var field = new StringBuilder();
-                var dicfield = new Dictionary<string, bool>();
-                var tb = _tables.First();
-                var index = 0;
-
-                var tborder = new[] { tb }.Concat(_tables.ToArray().Where((a, b) => b > 0).OrderBy(a => a.Alias));
-                var tbiindex = 0;
-                foreach (var tbi in tborder)
-                {
-                    if (tbiindex > 0 && tbi.Type == SelectTableInfoType.From) continue;
-                    if (tbiindex > 0 && tbi.Alias.StartsWith($"{tb.Alias}__") == false) continue;
-
-                    var typei = tbi.Table.TypeLazy ?? tbi.Table.Type;
-                    Expression curExp = retExp;
-
-                    var colidx = 0;
-                    foreach (var col in tbi.Table.Columns.Values)
-                    {
-                        if (index > 0)
-                        {
-                            field.Append(", ");
-                            if (tbiindex > 0 && colidx == 0) field.Append("\r\n");
-                        }
-                        var quoteName = _commonUtils.QuoteSqlName(col.Attribute.Name);
-                        field.Append(_commonUtils.QuoteReadColumn(col.CsType, col.Attribute.MapType, $"{tbi.Alias}.{quoteName}"));
-                        ++index;
-                        if (dicfield.ContainsKey(quoteName)) field.Append(_commonUtils.FieldAsAlias($"as{index}"));
-                        else dicfield.Add(quoteName, true);
-                        ++colidx;
-                    }
-                    tbiindex++;
-
-                    if (tbiindex == 0)
-                        blockExp.AddRange(new Expression[] {
-                            Expression.Assign(readExp, Expression.Call(Utils.MethodExecuteArrayRowReadClassOrTuple, new Expression[] { Expression.Constant(null, typeof(string)), Expression.Constant(typei), Expression.Constant(null, typeof(int[])), rowExp, dataIndexExp, Expression.Constant(_commonUtils) })),
-                            Expression.IfThen(
-                                Expression.GreaterThan(readExpDataIndex, dataIndexExp),
-                                Expression.Assign(dataIndexExp, readExpDataIndex)
-                            ),
-                            Expression.IfThen(
-                                Expression.NotEqual(readExpValue, Expression.Constant(null)),
-                                Expression.Assign(retExp, Expression.Convert(readExpValue, typei))
-                            )
-                        });
-                    else
-                    {
-                        Expression curExpIfNotNull = Expression.IsTrue(Expression.Constant(true));
-                        var curTb = tb;
-                        var parentNameSplits = tbi.Alias.Split(new[] { "__" }, StringSplitOptions.None);
-                        var iscontinue = false;
-                        for (var k = 1; k < parentNameSplits.Length; k++)
-                        {
-                            var curPropName = parentNameSplits[k];
-                            if (curTb.Table.Properties.TryGetValue(parentNameSplits[k], out var tryprop) == false)
-                            {
-                                k++;
-                                curPropName = $"{curPropName}__{parentNameSplits[k]}";
-                                if (curTb.Table.Properties.TryGetValue(parentNameSplits[k], out tryprop) == false)
-                                {
-                                    iscontinue = true;
-                                    break;
-                                }
-                            }
-                            curExp = Expression.MakeMemberAccess(curExp, tryprop);
-                            if (k + 1 < parentNameSplits.Length)
-                                curExpIfNotNull = Expression.AndAlso(curExpIfNotNull, Expression.NotEqual(curExp, Expression.Default(tryprop.PropertyType)));
-                            curTb = _tables.Where(a => a.Alias == $"{curTb.Alias}__{curPropName}" && a.Table.Type == tryprop.PropertyType).FirstOrDefault();
-                            if (curTb == null)
-                            {
-                                iscontinue = true;
-                                break;
-                            }
-                        }
-                        if (iscontinue) continue;
-
-                        blockExp.Add(
-                            Expression.IfThenElse(
-                                curExpIfNotNull,
-                                Expression.Block(new Expression[] {
-                                    Expression.Assign(readExp, Expression.Call(Utils.MethodExecuteArrayRowReadClassOrTuple, new Expression[] { Expression.Constant(null, typeof(string)), Expression.Constant(typei), Expression.Constant(null, typeof(int[])), rowExp, dataIndexExp, Expression.Constant(_commonUtils) })),
-                                    Expression.IfThen(
-                                        Expression.GreaterThan(readExpDataIndex, dataIndexExp),
-                                        Expression.Assign(dataIndexExp, readExpDataIndex)
-                                    ),
-                                    Expression.IfThenElse(
-                                        Expression.NotEqual(readExpValue, Expression.Constant(null)),
-                                        Expression.Assign(curExp, Expression.Convert(readExpValue, typei)),
-                                        Expression.Assign(curExp, Expression.Constant(null, typei))
-                                    )
-                                }),
-                                Expression.Block(
-                                    Expression.Assign(readExpValue, Expression.Constant(null, typeof(object))),
-                                    Expression.Assign(dataIndexExp, Expression.Constant(index))
-                                )
-                            )
-                        );
-                    }
-
-                    if (tbi.Table.TypeLazy != null)
-                        blockExp.Add(
-                            Expression.IfThen(
-                                Expression.NotEqual(readExpValue, Expression.Constant(null)),
-                                Expression.Call(Expression.TypeAs(readExpValue, typei), tbi.Table.TypeLazySetOrm, ormExp)
-                            )
-                        ); //将 orm 传递给 lazy
-                }
-
-                blockExp.AddRange(new Expression[] {
-                    Expression.Return(returnTarget, retExp),
-                    Expression.Label(returnTarget, Expression.Default(type))
-                });
-                return new GetAllFieldExpressionTreeInfo
-                {
-                    Field = field.ToString(),
-                    FieldCount = index,
-                    Read = Expression.Lambda<Func<IFreeSql, DbDataReader, T1>>(Expression.Block(new[] { retExp, dataIndexExp, readExp }, blockExp), new[] { ormExp, rowExp }).Compile()
-                };
-            });
-        }
-        public GetAllFieldExpressionTreeInfo GetAllFieldExpressionTreeLevel2()
-        {
-            return _dicGetAllFieldExpressionTree.GetOrAdd(string.Join("+", _tables.Select(a => $"{_orm.Ado.DataType}-{a.Table.DbName}-{a.Alias}-{a.Type}")), s =>
-            {
-                var tb1 = _tables.First().Table;
-                var type = tb1.TypeLazy ?? tb1.Type;
-                var props = tb1.Properties;
-
-                var ormExp = Expression.Parameter(typeof(IFreeSql), "orm");
-                var rowExp = Expression.Parameter(typeof(DbDataReader), "row");
-                var returnTarget = Expression.Label(type);
-                var retExp = Expression.Variable(type, "ret");
-                var dataIndexExp = Expression.Variable(typeof(int), "dataIndex");
-                var readExp = Expression.Variable(typeof(Utils.RowInfo), "read");
-                var readExpValue = Expression.MakeMemberAccess(readExp, Utils.RowInfo.PropertyValue);
-                var readExpDataIndex = Expression.MakeMemberAccess(readExp, Utils.RowInfo.PropertyDataIndex);
-                var blockExp = new List<Expression>();
-                blockExp.AddRange(new Expression[] {
-                    Expression.Assign(retExp, type.InternalNewExpression()),
-                    Expression.Assign(dataIndexExp, Expression.Constant(0))
-                });
-                //typeof(Topic).GetMethod("get_Type").IsVirtual
-
-                var field = new StringBuilder();
-                var dicfield = new Dictionary<string, bool>();
-                var tb = _tables.First();
-                var index = 0;
-                var otherindex = 0;
-                foreach (var prop in props.Values)
-                {
-                    if (tb.Table.ColumnsByCsIgnore.ContainsKey(prop.Name)) continue;
-
-                    if (tb.Table.ColumnsByCs.TryGetValue(prop.Name, out var col))
-                    { //普通字段
-                        if (index > 0) field.Append(", ");
-                        var quoteName = _commonUtils.QuoteSqlName(col.Attribute.Name);
-                        field.Append(_commonUtils.QuoteReadColumn(col.CsType, col.Attribute.MapType, $"{tb.Alias}.{quoteName}"));
-                        ++index;
-                        if (dicfield.ContainsKey(quoteName)) field.Append(_commonUtils.FieldAsAlias($"as{index}"));
-                        else dicfield.Add(quoteName, true);
-                    }
-                    else
-                    {
-                        var tb2 = _tables.Where((a, b) => b > 0 &&
-                            (a.Type == SelectTableInfoType.InnerJoin || a.Type == SelectTableInfoType.LeftJoin || a.Type == SelectTableInfoType.RightJoin) &&
-                            string.IsNullOrEmpty(a.On) == false &&
-                            a.Alias.StartsWith($"{tb.Alias}__") && //开头结尾完全匹配
-                            a.Alias.EndsWith($"__{prop.Name}") //不清楚会不会有其他情况 求大佬优化
-                            ).FirstOrDefault(); //判断 b > 0 防止 parent 递归关系
-                        if (tb2 == null && props.Where(pw => pw.Value.PropertyType == prop.PropertyType).Count() == 1)
-                            tb2 = _tables.Where((a, b) => b > 0 &&
-                                (a.Type == SelectTableInfoType.InnerJoin || a.Type == SelectTableInfoType.LeftJoin || a.Type == SelectTableInfoType.RightJoin) &&
-                                string.IsNullOrEmpty(a.On) == false &&
-                                a.Table.Type == prop.PropertyType).FirstOrDefault();
-                        if (tb2 == null) continue;
-                        foreach (var col2 in tb2.Table.Columns.Values)
-                        {
-                            if (index > 0) field.Append(", ");
-                            var quoteName = _commonUtils.QuoteSqlName(col2.Attribute.Name);
-                            field.Append(_commonUtils.QuoteReadColumn(col2.CsType, col2.Attribute.MapType, $"{tb2.Alias}.{quoteName}"));
-                            ++index;
-                            ++otherindex;
-                            if (dicfield.ContainsKey(quoteName)) field.Append(_commonUtils.FieldAsAlias($"as{index}"));
-                            else dicfield.Add(quoteName, true);
-                        }
-                    }
-                    //只读到二级属性
-                    var propGetSetMethod = prop.GetSetMethod(true);
-                    Expression readExpAssign = null; //加速缓存
-                    if (prop.PropertyType.IsArray) readExpAssign = Expression.New(Utils.RowInfo.Constructor,
-                        Utils.GetDataReaderValueBlockExpression(prop.PropertyType, Expression.Call(Utils.MethodDataReaderGetValue, new Expression[] { Expression.Constant(_commonUtils), rowExp, dataIndexExp })),
-                        //Expression.Call(Utils.MethodGetDataReaderValue, new Expression[] { Expression.Constant(prop.PropertyType), Expression.Call(rowExp, Utils.MethodDataReaderGetValue, dataIndexExp) }),
-                        Expression.Add(dataIndexExp, Expression.Constant(1))
-                    );
-                    else
-                    {
-                        var proptypeGeneric = prop.PropertyType;
-                        if (proptypeGeneric.IsNullableType()) proptypeGeneric = proptypeGeneric.GetGenericArguments().First();
-                        if (proptypeGeneric.IsEnum ||
-                            Utils.dicExecuteArrayRowReadClassOrTuple.ContainsKey(proptypeGeneric)) readExpAssign = Expression.New(Utils.RowInfo.Constructor,
-                                Utils.GetDataReaderValueBlockExpression(prop.PropertyType, Expression.Call(Utils.MethodDataReaderGetValue, new Expression[] { Expression.Constant(_commonUtils), rowExp, dataIndexExp })),
-                                //Expression.Call(Utils.MethodGetDataReaderValue, new Expression[] { Expression.Constant(prop.PropertyType), Expression.Call(rowExp, Utils.MethodDataReaderGetValue, dataIndexExp) }),
-                                Expression.Add(dataIndexExp, Expression.Constant(1))
-                        );
-                        else
-                        {
-                            var propLazyType = _commonUtils.GetTableByEntity(prop.PropertyType)?.TypeLazy ?? prop.PropertyType;
-                            readExpAssign = Expression.Call(Utils.MethodExecuteArrayRowReadClassOrTuple, new Expression[] { Expression.Constant(null, typeof(string)), Expression.Constant(propLazyType), Expression.Constant(null, typeof(int[])), rowExp, dataIndexExp, Expression.Constant(_commonUtils) });
-                        }
-                    }
-                    blockExp.AddRange(new Expression[] {
-                        Expression.Assign(readExp, readExpAssign),
-                        Expression.IfThen(Expression.GreaterThan(readExpDataIndex, dataIndexExp),
-                            Expression.Assign(dataIndexExp, readExpDataIndex)),
-						//Expression.Call(typeof(Trace).GetMethod("WriteLine", new Type[]{typeof(string)}), Expression.Call(typeof(string).GetMethod("Concat", new Type[]{typeof(object) }), readExpValue)),
-
-						tb1.TypeLazy != null ?
-                            Expression.IfThenElse(
-                                Expression.NotEqual(readExpValue, Expression.Constant(null)),
-                                Expression.Call(retExp, propGetSetMethod, Expression.Convert(readExpValue, prop.PropertyType)),
-                                Expression.Call(retExp, propGetSetMethod, Expression.Convert(Utils.GetDataReaderValueBlockExpression(prop.PropertyType, Expression.Constant(null)), prop.PropertyType))
-                            ) :
-                            Expression.IfThen(
-                                Expression.NotEqual(readExpValue, Expression.Constant(null)),
-                                Expression.Call(retExp, propGetSetMethod, Expression.Convert(readExpValue, prop.PropertyType))
-                            )
-                    });
-                }
-                if (otherindex == 0)
-                { //不读导航属性，优化单表读取性能
-                    blockExp.Clear();
-                    blockExp.AddRange(new Expression[] {
-                        Expression.Assign(dataIndexExp, Expression.Constant(0)),
-                        Expression.Assign(readExp, Expression.Call(Utils.MethodExecuteArrayRowReadClassOrTuple, new Expression[] { Expression.Constant(null, typeof(string)), Expression.Constant(type), Expression.Constant(null, typeof(int[])), rowExp, dataIndexExp, Expression.Constant(_commonUtils) })),
-                        Expression.IfThen(
-                            Expression.NotEqual(readExpValue, Expression.Constant(null)),
-                            Expression.Assign(retExp, Expression.Convert(readExpValue, type))
-                        )
-                    });
-                }
-                if (tb1.TypeLazy != null)
-                    blockExp.Add(
-                        Expression.IfThen(
-                            Expression.NotEqual(readExpValue, Expression.Constant(null)),
-                            Expression.Call(retExp, tb1.TypeLazySetOrm, ormExp)
-                        )
-                    ); //将 orm 传递给 lazy
-                blockExp.AddRange(new Expression[] {
-                    Expression.Return(returnTarget, retExp),
-                    Expression.Label(returnTarget, Expression.Default(type))
-                });
-                return new GetAllFieldExpressionTreeInfo
-                {
-                    Field = field.ToString(),
-                    Read = Expression.Lambda<Func<IFreeSql, DbDataReader, T1>>(Expression.Block(new[] { retExp, dataIndexExp, readExp }, blockExp), new[] { ormExp, rowExp }).Compile()
-                };
-            });
-        }
-        protected ReadAnonymousTypeAfInfo GetAllFieldReflection()
-        {
-            var tb1 = _tables.First().Table;
-            var type = tb1.TypeLazy ?? tb1.Type;
-            var constructor = type.InternalGetTypeConstructor0OrFirst();
-            var map = new ReadAnonymousTypeInfo { CsType = type, Consturctor = constructor, IsEntity = true };
-
-            var field = new StringBuilder();
-            var dicfield = new Dictionary<string, bool>();
-            var tb = _tables.First();
-            var index = 0;
-            var ps = tb1.Properties;
-            foreach (var p in ps.Values)
-            {
-                var child = new ReadAnonymousTypeInfo { Property = p, CsName = p.Name };
-                if (tb.Table.ColumnsByCs.TryGetValue(p.Name, out var col))
-                { //普通字段
-                    if (index > 0) field.Append(", ");
-                    var quoteName = _commonUtils.QuoteSqlName(col.Attribute.Name);
-                    field.Append(_commonUtils.QuoteReadColumn(col.CsType, col.Attribute.MapType, $"{tb.Alias}.{quoteName}"));
-                    ++index;
-                    if (dicfield.ContainsKey(quoteName)) field.Append(_commonUtils.FieldAsAlias($"as{index}"));
-                    else dicfield.Add(quoteName, true);
-                }
-                else
-                {
-                    var tb2 = _tables.Where(a => a.Table.Type == p.PropertyType && a.Alias.Contains(p.Name)).FirstOrDefault();
-                    if (tb2 == null && ps.Where(pw => pw.Value.PropertyType == p.PropertyType).Count() == 1) tb2 = _tables.Where(a => a.Table.Type == p.PropertyType).FirstOrDefault();
-                    if (tb2 == null) continue;
-                    child.CsType = (tb2.Table.TypeLazy ?? tb2.Table.Type);
-                    child.Consturctor = child.CsType.InternalGetTypeConstructor0OrFirst();
-                    child.IsEntity = true;
-                    foreach (var col2 in tb2.Table.Columns.Values)
-                    {
-                        if (index > 0) field.Append(", ");
-                        var quoteName = _commonUtils.QuoteSqlName(col2.Attribute.Name);
-                        field.Append(_commonUtils.QuoteReadColumn(col2.CsType, col2.Attribute.MapType, $"{tb2.Alias}.{quoteName}"));
-                        ++index;
-                        if (dicfield.ContainsKey(quoteName)) field.Append(_commonUtils.FieldAsAlias($"as{index}"));
-                        else dicfield.Add(quoteName, true);
-                        child.Childs.Add(new ReadAnonymousTypeInfo
-                        {
-                            Property = tb2.Table.Type.GetProperty(col2.CsName, BindingFlags.Public | BindingFlags.IgnoreCase | BindingFlags.Instance),
-                            CsName = col2.CsName
-                        });
-                    }
-                }
-                map.Childs.Add(child);
-            }
-            return new ReadAnonymousTypeAfInfo(map, field.ToString());
-        }
-
         string GetToDeleteWhere(string alias)
         {
             var pks = _tables[0].Table.Primarys;
-            if (pks.Length == 1)
-                return $"{_commonUtils.QuoteSqlName(_tables[0].Table.Primarys[0].Attribute.Name)} in (select * from ({this.ToSql($"{_tables[0].Alias}.{_commonUtils.QuoteSqlName(_tables[0].Table.Primarys[0].Attribute.Name)}")}) {alias})";
-            else
+            var old_selectVal = _select;
+            switch (_orm.Ado.DataType)
             {
-                var concatTypes = new Type[pks.Length * 2 - 1];
-                var concatMainCols = new string[pks.Length * 2 - 1];
-                var concatInCols = new string[pks.Length * 2 - 1];
-                var concatSplit = _commonUtils.FormatSql("{0}", $",{alias},");
-                for (var a = 0; a < pks.Length; a++)
+                case DataType.Dameng: //达梦不能这样
+                case DataType.Oracle:
+                case DataType.OdbcOracle:
+                case DataType.CustomOracle:
+                case DataType.Firebird:
+                case DataType.GBase:
+                    break;
+                default:
+                    _select = "SELECT ";
+                    break;
+            }
+            try
+            {
+                if (pks.Length == 1)
+                    return $"{_commonUtils.QuoteSqlName(_tables[0].Table.Primarys[0].Attribute.Name)} in (select * from ({this.ToSql($"{_tables[0].Alias}.{_commonUtils.QuoteSqlName(_tables[0].Table.Primarys[0].Attribute.Name)}")}) {alias})";
+                else
                 {
-                    concatTypes[a * 2] = pks[a].CsType;
-                    concatMainCols[a * 2] = _commonUtils.QuoteSqlName(pks[a].Attribute.Name);
-                    concatInCols[a * 2] = $"{_tables[0].Alias}.{_commonUtils.QuoteSqlName(pks[a].Attribute.Name)}";
-                    if (a < pks.Length - 1)
+                    var concatTypes = new Type[pks.Length * 2 - 1];
+                    var concatMainCols = new string[pks.Length * 2 - 1];
+                    var concatInCols = new string[pks.Length * 2 - 1];
+                    var concatSplit = _commonUtils.FormatSql("{0}", $",{alias},");
+                    for (var a = 0; a < pks.Length; a++)
                     {
-                        concatTypes[a * 2 + 1] = typeof(string);
-                        concatMainCols[a * 2 + 1] = concatSplit;
-                        concatInCols[a * 2 + 1] = concatSplit;
+                        concatTypes[a * 2] = pks[a].CsType;
+                        concatMainCols[a * 2] = _commonUtils.QuoteSqlName(pks[a].Attribute.Name);
+                        concatInCols[a * 2] = $"{_tables[0].Alias}.{_commonUtils.QuoteSqlName(pks[a].Attribute.Name)}";
+                        if (a < pks.Length - 1)
+                        {
+                            concatTypes[a * 2 + 1] = typeof(string);
+                            concatMainCols[a * 2 + 1] = concatSplit;
+                            concatInCols[a * 2 + 1] = concatSplit;
+                        }
                     }
+                    return $"{_commonUtils.StringConcat(concatMainCols, concatTypes)} in (select * from ({this.ToSql($"{_commonUtils.StringConcat(concatInCols, concatTypes)} as as1")}) {alias})";
                 }
-                return $"{_commonUtils.StringConcat(concatMainCols, concatTypes)} in (select * from ({this.ToSql($"{_commonUtils.StringConcat(concatInCols, concatTypes)} as as1")}) {alias})";
+            }
+            finally
+            {
+                _select = old_selectVal;
             }
         }
         public IDelete<T1> ToDelete()
         {
-            if (_tables[0].Table.Primarys.Any() == false) throw new Exception($"ToDelete 功能要求实体类 {_tables[0].Table.CsName} 必须有主键");
-            var del = _orm.Delete<T1>();
+            if (_tables[0].Table.Primarys.Any() == false) throw new Exception(CoreErrorStrings.Entity_Must_Primary_Key("ToDelete", _tables[0].Table.CsName));
+            var del = (_orm as BaseDbProvider).CreateDeleteProvider<T1>(null) as DeleteProvider<T1>;
             if (_tables[0].Table.Type != typeof(T1)) del.AsType(_tables[0].Table.Type);
-            if (_params.Any()) del.GetType().GetField("_params", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(del, new List<DbParameter>(_params.ToArray()));
+            if (_params.Any()) del._params = new List<DbParameter>(_params.ToArray());
+            if (_whereGlobalFilter.Any()) del._whereGlobalFilter = new List<GlobalFilter.Item>(_whereGlobalFilter.ToArray());
+            del.WithConnection(_connection).WithTransaction(_transaction ?? _orm.Ado.TransactionCurrentThread ?? _resolveHookTransaction?.Invoke()).CommandTimeout(_commandTimeout);
+            if (_is_AsTreeCte == false)
+            {
+                var trytbname = "";
+                del.AsTable(old => GetTableRuleUnions().FirstOrDefault()?.TryGetValue(_tables[0].Table.Type, out trytbname) == true && trytbname.IndexOf(' ') == -1 ? trytbname : null);
+            }
+            switch (_orm.Ado.DataType)
+            {
+                case DataType.Dameng: //达梦不能这样
+                case DataType.Oracle:
+                case DataType.OdbcOracle:
+                case DataType.CustomOracle:
+                case DataType.Firebird:
+                case DataType.GBase:
+                    break;
+                default:
+                    var beforeSql = this._select;
+                    if (beforeSql.EndsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        beforeSql = beforeSql.Substring(0, beforeSql.Length - 7);
+                        if (string.IsNullOrEmpty(beforeSql) == false)
+                            del._interceptSql = sb => sb.Insert(0, beforeSql);
+                    }
+                    break;
+            }
             return del.Where(GetToDeleteWhere("ftb_del"));
         }
         public IUpdate<T1> ToUpdate()
         {
-            if (_tables[0].Table.Primarys.Any() == false) throw new Exception($"ToUpdate 功能要求实体类 {_tables[0].Table.CsName} 必须有主键");
-            var upd = _orm.Update<T1>();
+            if (_tables[0].Table.Primarys.Any() == false) throw new Exception(CoreErrorStrings.Entity_Must_Primary_Key("ToUpdate", _tables[0].Table.CsName));
+            var upd = (_orm as BaseDbProvider).CreateUpdateProvider<T1>(null) as UpdateProvider<T1>;
             if (_tables[0].Table.Type != typeof(T1)) upd.AsType(_tables[0].Table.Type);
-            if (_params.Any()) upd.GetType().GetField("_params", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(upd, new List<DbParameter>(_params.ToArray()));
+            if (_params.Any()) upd._params = new List<DbParameter>(_params.ToArray());
+            if (_whereGlobalFilter.Any()) upd._whereGlobalFilter = new List<GlobalFilter.Item>(_whereGlobalFilter.ToArray());
+            upd.WithConnection(_connection).WithTransaction(_transaction ?? _orm.Ado.TransactionCurrentThread ?? _resolveHookTransaction?.Invoke()).CommandTimeout(_commandTimeout);
+            if (_is_AsTreeCte == false)
+            {
+                var trytbname = "";
+                upd.AsTable(old => GetTableRuleUnions().FirstOrDefault()?.TryGetValue(_tables[0].Table.Type, out trytbname) == true && trytbname.IndexOf(' ') == -1 ? trytbname : null);
+            }
+            switch (_orm.Ado.DataType)
+            {
+                case DataType.Dameng: //达梦不能这样
+                case DataType.Oracle:
+                case DataType.OdbcOracle:
+                case DataType.CustomOracle:
+                case DataType.Firebird:
+                case DataType.GBase:
+                    break;
+                default:
+                    var beforeSql = this._select;
+                    if (beforeSql.EndsWith("SELECT ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        beforeSql = beforeSql.Substring(0, beforeSql.Length - 7);
+                        if (string.IsNullOrEmpty(beforeSql) == false)
+                            upd._interceptSql = sb => sb.Insert(0, beforeSql);
+                    }
+                    break;
+            }
             return upd.Where(GetToDeleteWhere("ftb_upd"));
         }
 
@@ -972,34 +952,149 @@ namespace FreeSql.Internal.CommonProvider
         {
             var unions = new List<Dictionary<Type, string>>();
             var trs = _tableRules.Any() ? _tableRules : new List<Func<Type, string, string>>(new[] { new Func<Type, string, string>((type, oldname) => null) });
+
+            if (trs.Count == 1 && _tables.Any(a => a.Table != null && a.Table.AsTableImpl != null &&
+                string.IsNullOrWhiteSpace(trs[0](a.Table.Type, a.Table.AsTableImpl != null ? null : a.Table.DbName)) == true))
+            {
+                DateTime? DateTimeAsTableImplStart = null, DateTimeAsTableImplEnd = null;
+                string[] LocalGetTableNames(SelectTableInfo tb)
+                {
+                    var trname = trs[0](tb.Table.Type, tb.Table.AsTableImpl != null ? null : _commonUtils.GetEntityTableAopName(tb.Table, false));
+                    if (tb.Table.AsTableImpl != null && string.IsNullOrWhiteSpace(trname) == true)
+                    {
+                        var aret = tb.Table.AsTableImpl.GetTableNamesBySqlWhere(_where.Length == 0 ? null : _where.ToString(), _params, tb, _commonUtils);
+                        if (aret.Names.Any() == false)
+                        {
+                            var now = DateTime.Now;
+                            aret = new IAsTableTableNameRangeResult(tb.Table.AsTableImpl.AllTables.Take(1).ToArray(), now, now);
+                        }
+
+                        for (var a = 0; a < aret.Names.Length; a++)
+                        {
+                            if (_orm.CodeFirst.IsSyncStructureToLower) aret.Names[a] = aret.Names[a].ToLower();
+                            if (_orm.CodeFirst.IsSyncStructureToUpper) aret.Names[a] = aret.Names[a].ToUpper();
+                            if (_orm.CodeFirst.IsAutoSyncStructure) _orm.CodeFirst.SyncStructure(tb.Table.Type, aret.Names[a]);
+                        }
+                        if (tb.Table.AsTableImpl is DateTimeAsTableImpl)
+                        {
+                            if (aret.ColumnValue1 is DateTime dt1)
+                                if (DateTimeAsTableImplStart == null || dt1 > DateTimeAsTableImplStart) DateTimeAsTableImplStart = dt1;
+                            if (aret.ColumnValue2 is DateTime dt2)
+                                if (DateTimeAsTableImplEnd == null || dt2 < DateTimeAsTableImplEnd) DateTimeAsTableImplEnd = dt2;
+                        }
+                        return aret.Names;
+                    }
+                    if (string.IsNullOrWhiteSpace(trname) == false)
+                    {
+                        if (trname.IndexOf(' ') == -1) //还可以这样：select.AsTable((a, b) => "(select * from tb_topic where clicks > 10)").Page(1, 10).ToList()
+                        {
+                            if (_orm.CodeFirst.IsSyncStructureToLower) trname = trname.ToLower();
+                            if (_orm.CodeFirst.IsSyncStructureToUpper) trname = trname.ToUpper();
+                            if (_orm.CodeFirst.IsAutoSyncStructure) _orm.CodeFirst.SyncStructure(tb.Table.Type, trname);
+                        }
+                        else
+                            trname = trname.Replace(" \r\n", " \r\n    ");
+                        return new string[] { trname };
+                    }
+                    return new string[] { tb.Table.DbName };
+                }
+                var tbnames = _tables.Where(a => a.Type != SelectTableInfoType.Parent && a.Type != SelectTableInfoType.WithoutJoin)
+                    .GroupBy(a => a.Table.Type).Select(g => _tables.Where(a => a.Table.Type == g.Key).FirstOrDefault()).Select(a => new { Tb = a, Names = LocalGetTableNames(a) }).ToList();
+                if (DateTimeAsTableImplStart != null && DateTimeAsTableImplEnd != null && tbnames.Where(a => a.Names.Length > 1).Count() > 1)
+                {
+                    tbnames = tbnames.Select(a => new { a.Tb, Names = a.Tb.Table.AsTableImpl?.GetTableNamesByColumnValueRange(DateTimeAsTableImplStart, DateTimeAsTableImplEnd) ?? a.Names }).ToList();
+                }
+                var dict = new Dictionary<Type, string>();
+                tbnames.ForEach(a =>
+                {
+                    dict.Add(a.Tb.Table.Type, a.Names[0]);
+                });
+                unions.Add(dict);
+                for (var a = 0; a < tbnames.Count; a++)
+                {
+                    if (tbnames[a].Names.Length <= 1) continue;
+                    var unionsCount = unions.Count;
+                    for (var b = 1; b < tbnames[a].Names.Length; b++)
+                    {
+                        for (var d = 0; d < unionsCount; d++)
+                        {
+                            dict = new Dictionary<Type, string>();
+                            foreach (var uit in unions[d])
+                                dict.Add(uit.Key, uit.Key == tbnames[a].Tb.Table.Type ? tbnames[a].Names[b] : uit.Value);
+                            unions.Add(dict);
+                        }
+                    }
+                }
+                if (DateTimeAsTableImplStart != null && DateTimeAsTableImplEnd != null && tbnames.Where(a => a.Names.Length > 1).Count() > 1)
+                {
+                    for (var uidx = unions.Count - 1; uidx >= 0; uidx--)
+                    {
+                        var ignore = false;
+                        DateTime? dtStart = null, dtEnd = null;
+                        foreach (var ut in unions[uidx])
+                        {
+                            if (tbnames.Where(a => a.Tb.Table.Type == ut.Key).FirstOrDefault()?.Tb.Table?.AsTableImpl is DateTimeAsTableImpl dtImpl == false) continue;
+                            var dtRange = dtImpl.GetRangeByTableName(ut.Value);
+                            if (dtRange == null) continue;
+                            if (dtStart == null) dtStart = dtRange.Item1;
+                            if (dtEnd == null) dtEnd = dtRange.Item2;
+                            if (dtRange.Item1 >= dtEnd || dtRange.Item2 <= dtStart)
+                            {
+                                ignore = true;
+                                break;
+                            }
+                            if (dtRange.Item1 > dtStart) dtStart = dtRange.Item1;
+                            if (dtRange.Item2 < dtEnd) dtEnd = dtRange.Item2;
+                        }
+                        if (ignore) unions.RemoveAt(uidx);
+                    }
+                }
+                return unions;
+            }
+            if (trs.Any() == false) trs.Add(new Func<Type, string, string>((type, oldname) => null));
             foreach (var tr in trs)
             {
                 var dict = new Dictionary<Type, string>();
                 foreach (var tb in _tables)
                 {
                     if (tb.Type == SelectTableInfoType.Parent) continue;
+                    if (tb.Type == SelectTableInfoType.WithoutJoin) continue;
                     if (dict.ContainsKey(tb.Table.Type)) continue;
-                    var name = tr?.Invoke(tb.Table.Type, tb.Table.DbName);
-                    if (string.IsNullOrEmpty(name)) name = tb.Table.DbName;
+                    var tbname = _commonUtils.GetEntityTableAopName(tb.Table, true);
+                    var newname = tr?.Invoke(tb.Table.Type, tbname);
+                    if (string.IsNullOrEmpty(newname)) newname = tbname;
                     else
                     {
-                        if (name.IndexOf(' ') == -1) //还可以这样：select.AsTable((a, b) => "(select * from tb_topic where clicks > 10)").Page(1, 10).ToList()
+                        if (newname.IndexOf(' ') == -1) //还可以这样：select.AsTable((a, b) => "(select * from tb_topic where clicks > 10)").Page(1, 10).ToList()
                         {
-                            if (_orm.CodeFirst.IsSyncStructureToLower) name = name.ToLower();
-                            if (_orm.CodeFirst.IsSyncStructureToUpper) name = name.ToUpper();
-                            if (_orm.CodeFirst.IsAutoSyncStructure) _orm.CodeFirst.SyncStructure(tb.Table.Type, name);
+                            if (_orm.CodeFirst.IsSyncStructureToLower) newname = newname.ToLower();
+                            if (_orm.CodeFirst.IsSyncStructureToUpper) newname = newname.ToUpper();
+                            if (_orm.CodeFirst.IsAutoSyncStructure) _orm.CodeFirst.SyncStructure(tb.Table.Type, newname);
                         }
                         else
-                            name = name.Replace("\r\n", "\r\n    ");
+                            newname = newname.Replace(" \r\n", " \r\n    ");
                     }
-                    dict.Add(tb.Table.Type, name);
+                    dict.Add(tb.Table.Type, newname);
                 }
                 unions.Add(dict);
             }
             return unions;
         }
+        public override void AsTableBase(Func<Type, string, string> tableRule) => AsTable(tableRule);
         public TSelect AsTable(Func<Type, string, string> tableRule)
         {
+            if (_tableRules.Count == 1 && _diymemexpWithTempQuery != null && _diymemexpWithTempQuery is WithTempQueryParser tempQueryParser)
+            {
+                var oldTableRule = _tableRules[0];
+                var newTableRule = tableRule;
+                _tableRules.Clear();
+                tableRule = (type, old) =>
+                {
+                    old = oldTableRule(type, old);
+                    var newname = newTableRule(type, old);
+                    return string.IsNullOrWhiteSpace(newname) ? old : newname;
+                };
+            }
             if (tableRule != null) _tableRules.Add(tableRule);
             return this as TSelect;
         }
@@ -1010,33 +1105,42 @@ namespace FreeSql.Internal.CommonProvider
         }
         public TSelect AsType(Type entityType)
         {
-            if (entityType == typeof(object)) throw new Exception("ISelect.AsType 参数不支持指定为 object");
+            if (entityType == typeof(object)) throw new Exception(CoreErrorStrings.TypeAsType_NotSupport_Object("ISelect"));
             if (entityType == _tables[0].Table.Type) return this as TSelect;
             var newtb = _commonUtils.GetTableByEntity(entityType);
-            _tables[0].Table = newtb ?? throw new Exception("ISelect.AsType 参数错误，请传入正确的实体类型");
+            _tables[0].Table = newtb ?? throw new Exception(CoreErrorStrings.Type_AsType_Parameter_Error("ISelect"));
             if (_orm.CodeFirst.IsAutoSyncStructure) _orm.CodeFirst.SyncStructure(entityType);
             return this as TSelect;
         }
+        public override string ToSqlBase(string field = null) => ToSql(field);
         public abstract string ToSql(string field = null);
 
         public TSelect Where(string sql, object parms = null) => this.WhereIf(true, sql, parms);
         public TSelect WhereIf(bool condition, string sql, object parms = null)
         {
             if (condition == false || string.IsNullOrEmpty(sql)) return this as TSelect;
+            if (_groupBySelfFlag) return this.Having(sql, parms);
             _where.Append(" AND (").Append(sql).Append(")");
             if (parms != null) _params.AddRange(_commonUtils.GetDbParamtersByObject(sql, parms));
             return this as TSelect;
         }
 
-        static MethodInfo MethodStringContains = typeof(string).GetMethod("Contains", new[] { typeof(string) });
-        static MethodInfo MethodStringStartsWith = typeof(string).GetMethod("StartsWith", new[] { typeof(string) });
-        static MethodInfo MethodStringEndsWith = typeof(string).GetMethod("EndsWith", new[] { typeof(string) });
-        static ConcurrentDictionary<Type, MethodInfo> MethodEnumerableContainsDic = new ConcurrentDictionary<Type, MethodInfo>();
-        static MethodInfo GetMethodEnumerableContains(Type elementType) => MethodEnumerableContainsDic.GetOrAdd(elementType, et => typeof(Enumerable).GetMethods().Where(a => a.Name == "Contains").FirstOrDefault().MakeGenericMethod(elementType));
+        public TSelect OrderByPropertyName(string property, bool isAscending = true) => OrderByPropertyNameIf(true, property, isAscending);
+        public TSelect OrderByPropertyNameIf(bool condition, string property, bool isAscending = true)
+        {
+            if (condition == false) return this as TSelect;
+            Expression exp = ConvertStringPropertyToExpression(property);
+            if (exp == null) return this as TSelect;
+            var field = _commonExpression.ExpressionSelectColumn_MemberAccess(_tables, _tableRule, null, SelectTableInfoType.From, exp, true, _diymemexpWithTempQuery);
+            if (isAscending) return this.OrderBy(field);
+            return this.OrderBy($"{field} DESC");
+        }
+
         public TSelect WhereDynamicFilter(DynamicFilterInfo filter)
         {
             if (filter == null) return this as TSelect;
             var sb = new StringBuilder();
+            if (IsIgnoreFilter(filter)) filter.Field = "";
             ParseFilter(DynamicFilterLogic.And, filter, true);
             this.Where(sb.ToString());
             sb.Clear();
@@ -1046,78 +1150,84 @@ namespace FreeSql.Internal.CommonProvider
             {
                 if (string.IsNullOrEmpty(fi.Field) == false)
                 {
-                    var field = fi.Field.Split('.').Select(a => a.Trim()).ToArray();
                     Expression exp = null;
-
-                    if (field.Length == 1)
-                    {
-                        foreach (var tb in _tables)
-                        {
-                            if (tb.Table.ColumnsByCs.TryGetValue(field[0], out var col) &&
-                                tb.Table.Properties.TryGetValue(field[0], out var prop))
-                            {
-                                tb.Parameter = Expression.Parameter(tb.Table.Type, tb.Alias);
-                                exp = Expression.MakeMemberAccess(tb.Parameter, prop);
-                                break;
-                            }
-                        }
-                        if (exp == null) throw new Exception($"无法匹配 {fi.Field}");
-                    }
-                    else
-                    {
-                        var firstTb = _tables[0];
-                        var firstTbs = _tables.Where(a => a.AliasInit == field[0]).ToArray();
-                        if (firstTbs.Length == 1) firstTb = firstTbs[0];
-
-                        firstTb.Parameter = Expression.Parameter(firstTb.Table.Type, firstTb.Alias);
-                        var currentType = firstTb.Table.Type;
-                        Expression currentExp = firstTb.Parameter;
-
-                        for (var x = 0; x < field.Length; x++)
-                        {
-                            var tmp1 = field[x];
-                            if (_commonUtils.GetTableByEntity(currentType).Properties.TryGetValue(tmp1, out var prop) == false)
-                                throw new ArgumentException($"{currentType.DisplayCsharp()} 无法找到属性名 {tmp1}");
-                            currentType = prop.PropertyType;
-                            currentExp = Expression.MakeMemberAccess(currentExp, prop);
-                        }
-                        exp = currentExp;
-                    }
-
                     switch (fi.Operator)
                     {
-                        case DynamicFilterOperator.Contains: exp = Expression.Call(exp, MethodStringContains, Expression.Constant(fi.Value)); break;
-                        case DynamicFilterOperator.StartsWith: exp = Expression.Call(exp, MethodStringStartsWith, Expression.Constant(fi.Value)); break;
-                        case DynamicFilterOperator.EndsWith: exp = Expression.Call(exp, MethodStringEndsWith, Expression.Constant(fi.Value)); break;
-                        case DynamicFilterOperator.NotContains: exp = Expression.Not(Expression.Call(exp, MethodStringContains, Expression.Constant(fi.Value))); break;
-                        case DynamicFilterOperator.NotStartsWith: exp = Expression.Not(Expression.Call(exp, MethodStringStartsWith, Expression.Constant(fi.Value))); break;
-                        case DynamicFilterOperator.NotEndsWith: exp = Expression.Not(Expression.Call(exp, MethodStringEndsWith, Expression.Constant(fi.Value))); break;
+                        case DynamicFilterOperator.Custom:
+                            var fiValueCustomArray = fi.Field?.ToString().Split(new[] { ' ' }, 2);
+                            if (fiValueCustomArray.Length != 2) throw new ArgumentException(CoreErrorStrings.CustomFieldSeparatedBySpaces);
+                            if (string.IsNullOrWhiteSpace(fiValueCustomArray[0])) throw new ArgumentException(CoreErrorStrings.Custom_StaticMethodName_IsNotNull);
+                            if (string.IsNullOrWhiteSpace(fiValueCustomArray[1])) throw new ArgumentException(CoreErrorStrings.Custom_Reflection_IsNotNull);
+                            var fiValue1Type = Type.GetType(fiValueCustomArray[1]);
+                            if (fiValue1Type == null) throw new ArgumentException(CoreErrorStrings.NotFound_Reflection(fiValueCustomArray[1]));
+                            var fiValue0Method = fiValue1Type.GetMethod(fiValueCustomArray[0], new Type[] { typeof(string) });
+                            if (fiValue0Method == null) fiValue0Method = fiValue1Type.GetMethod(fiValueCustomArray[0], new Type[] { typeof(object), typeof(string) });
+                            if (fiValue0Method == null) throw new ArgumentException(CoreErrorStrings.NotFound_Static_MethodName(fiValueCustomArray[0]));
+                            if (MethodIsDynamicFilterCustomAttribute(fiValue0Method) == false) throw new ArgumentException(CoreErrorStrings.Custom_StaticMethodName_NotSet_DynamicFilterCustom(fiValueCustomArray[0]));
+                            var fiValue0MethodReturn = fiValue0Method?.Invoke(null, fiValue0Method.GetParameters()
+                                    .Select(a => a.ParameterType == typeof(object) ? (object)this :
+                                        (a.ParameterType == typeof(string) ? (object)(fi.Value?.ToString()) : (object)null))
+                                    .ToArray());
+                            exp = fiValue0MethodReturn is Expression expression ? expression : Expression.Call(_methodSqlExtInternalRawSql, Expression.Constant(fiValue0MethodReturn?.ToString(), typeof(string)));
+                            break;
+
+                        case DynamicFilterOperator.Contains:
+                        case DynamicFilterOperator.StartsWith:
+                        case DynamicFilterOperator.EndsWith:
+                        case DynamicFilterOperator.NotContains:
+                        case DynamicFilterOperator.NotStartsWith:
+                        case DynamicFilterOperator.NotEndsWith:
+                            exp = ConvertStringPropertyToExpression(fi.Field);
+                            if (exp.Type != typeof(string)) exp = Expression.TypeAs(exp, typeof(string));
+                            break;
+                        default:
+                            exp = ConvertStringPropertyToExpression(fi.Field);
+                            if (exp.Type == typeof(object) && fi.Value != null)
+                            {
+                                var valueType = fi.Value?.GetType();
+                                if (Utils.dicExecuteArrayRowReadClassOrTuple.ContainsKey(valueType)) exp = Expression.Convert(exp, valueType);
+                                else if (valueType.FullName == "System.Text.Json.JsonElement")
+                                {
+                                    var valueKind = valueType.GetProperty("ValueKind").GetValue(fi.Value, null).ToString();
+                                    if (valueKind == "Number") exp = Expression.Convert(exp, typeof(decimal));
+                                }
+                            }
+                            break;
+                    }
+                    switch (fi.Operator)
+                    {
+                        case DynamicFilterOperator.Contains: exp = Expression.Call(exp, MethodStringContains, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
+                        case DynamicFilterOperator.StartsWith: exp = Expression.Call(exp, MethodStringStartsWith, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
+                        case DynamicFilterOperator.EndsWith: exp = Expression.Call(exp, MethodStringEndsWith, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
+                        case DynamicFilterOperator.NotContains: exp = Expression.Not(Expression.Call(exp, MethodStringContains, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type))); break;
+                        case DynamicFilterOperator.NotStartsWith: exp = Expression.Not(Expression.Call(exp, MethodStringStartsWith, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type))); break;
+                        case DynamicFilterOperator.NotEndsWith: exp = Expression.Not(Expression.Call(exp, MethodStringEndsWith, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type))); break;
 
                         case DynamicFilterOperator.Eq:
                         case DynamicFilterOperator.Equals:
-                        case DynamicFilterOperator.Equal: exp = Expression.Equal(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
-                        case DynamicFilterOperator.NotEqual: exp = Expression.NotEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
+                        case DynamicFilterOperator.Equal: exp = Expression.Equal(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
+                        case DynamicFilterOperator.NotEqual: exp = Expression.NotEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
 
-                        case DynamicFilterOperator.GreaterThan: exp = Expression.GreaterThan(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
-                        case DynamicFilterOperator.GreaterThanOrEqual: exp = Expression.GreaterThanOrEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
-                        case DynamicFilterOperator.LessThan: exp = Expression.LessThan(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
-                        case DynamicFilterOperator.LessThanOrEqual: exp = Expression.LessThanOrEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value), exp.Type)); break;
+                        case DynamicFilterOperator.GreaterThan: exp = Expression.Call(typeof(SqlExt).GetMethod("GreaterThan").MakeGenericMethod(exp.Type), exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
+                        case DynamicFilterOperator.GreaterThanOrEqual: exp = Expression.Call(typeof(SqlExt).GetMethod("GreaterThanOrEqual").MakeGenericMethod(exp.Type), exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
+                        case DynamicFilterOperator.LessThan: exp = Expression.Call(typeof(SqlExt).GetMethod("LessThan").MakeGenericMethod(exp.Type), exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
+                        case DynamicFilterOperator.LessThanOrEqual: exp = Expression.Call(typeof(SqlExt).GetMethod("LessThanOrEqual").MakeGenericMethod(exp.Type), exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fi.Value?.ToString()), exp.Type)); break;
                         case DynamicFilterOperator.Range:
                             var fiValueRangeArray = getFiListValue();
-                            if (fiValueRangeArray.Length != 2) throw new ArgumentException($"Range 要求 Value 应该逗号分割，并且长度为 2");
+                            if (fiValueRangeArray.Length != 2) throw new ArgumentException(CoreErrorStrings.Range_Comma_Separateda_By2Char);
                             exp = Expression.AndAlso(
                                 Expression.GreaterThanOrEqual(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fiValueRangeArray[0]), exp.Type)),
-                                Expression.LessThan(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fiValueRangeArray[1]), exp.Type))); 
+                                Expression.LessThan(exp, Expression.Constant(Utils.GetDataReaderValue(exp.Type, fiValueRangeArray[1]), exp.Type)));
                             break;
                         case DynamicFilterOperator.DateRange:
                             var fiValueDateRangeArray = getFiListValue();
-                            if (fiValueDateRangeArray?.Length != 2) throw new ArgumentException($"DateRange 要求 Value 应该逗号分割，并且长度为 2");
+                            if (fiValueDateRangeArray?.Length != 2) throw new ArgumentException(CoreErrorStrings.DateRange_Comma_Separateda_By2Char);
                             if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d?$")) fiValueDateRangeArray[1] = DateTime.Parse(fiValueDateRangeArray[1]).AddDays(1).ToString("yyyy-MM-dd HH:mm:ss");
                             else if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?$")) fiValueDateRangeArray[1] = DateTime.Parse($"{fiValueDateRangeArray[1]}-01").AddMonths(1).ToString("yyyy-MM-dd HH:mm:ss");
                             else if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d$")) fiValueDateRangeArray[1] = DateTime.Parse($"{fiValueDateRangeArray[1]}-01-01").AddYears(1).ToString("yyyy-MM-dd HH:mm:ss");
                             else if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d? \d\d?$")) fiValueDateRangeArray[1] = DateTime.Parse($"{fiValueDateRangeArray[1]}:00:00").AddHours(1).ToString("yyyy-MM-dd HH:mm:ss");
                             else if (Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d? \d\d?:\d\d?$")) fiValueDateRangeArray[1] = DateTime.Parse($"{fiValueDateRangeArray[1]}:00").AddMinutes(1).ToString("yyyy-MM-dd HH:mm:ss");
-                            else throw new ArgumentException($"DateRange 要求 Value[1] 格式必须为：yyyy、yyyy-MM、yyyy-MM-dd、yyyy-MM-dd HH、yyyy、yyyy-MM-dd HH:mm");
+                            else if (!Regex.IsMatch(fiValueDateRangeArray[1], @"^\d\d\d\d[\-/]\d\d?[\-/]\d\d? \d\d?:\d\d?:\d\d?$")) throw new ArgumentException(CoreErrorStrings.DateRange_DateFormat_yyyy);
 
                             if (Regex.IsMatch(fiValueDateRangeArray[0], @"^\d\d\d\d[\-/]\d\d?$")) fiValueDateRangeArray[0] = DateTime.Parse($"{fiValueDateRangeArray[0]}-01").ToString("yyyy-MM-dd HH:mm:ss");
                             else if (Regex.IsMatch(fiValueDateRangeArray[0], @"^\d\d\d\d$")) fiValueDateRangeArray[0] = DateTime.Parse($"{fiValueDateRangeArray[0]}-01-01").ToString("yyyy-MM-dd HH:mm:ss");
@@ -1133,7 +1243,7 @@ namespace FreeSql.Internal.CommonProvider
                             var fiValueAnyArray = getFiListValue();
                             if (fiValueAnyArray.Length == 0) break;
                             var fiValueAnyArrayType = exp.Type.MakeArrayType();
-                            exp = Expression.Call(GetMethodEnumerableContains(exp.Type), Expression.Constant(Utils.GetDataReaderValue(fiValueAnyArrayType, fiValueAnyArray), fiValueAnyArrayType), exp);
+                            exp = Expression.Call(GetMethodEnumerable("Contains").MakeGenericMethod(exp.Type), Expression.Constant(Utils.GetDataReaderValue(fiValueAnyArrayType, fiValueAnyArray), fiValueAnyArrayType), exp);
                             if (fi.Operator == DynamicFilterOperator.NotAny) exp = Expression.Not(exp);
                             break;
                     }
@@ -1145,24 +1255,53 @@ namespace FreeSql.Internal.CommonProvider
                         {
                             var fiValueList = new List<string>();
                             foreach (var fiValueIeItem in fiValueIe)
-                                fiValueList.Add(string.Concat(fiValueIeItem));
+                            {
+                                if (fiValueIeItem is DateTime fiValueIeItemDateTime)
+                                    fiValueList.Add(fiValueIeItemDateTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                                else
+                                    fiValueList.Add(string.Concat(fiValueIeItem));
+                            }
                             return fiValueList.ToArray();
+                        }
+                        var fiValueType = fi.Value.GetType();
+                        if (fiValueType.FullName == "System.Text.Json.JsonElement")
+                        {
+                            var fiValueKind = fiValueType.GetProperty("ValueKind").GetValue(fi.Value, null).ToString();
+                            if (fiValueKind == "Array")
+                            {
+                                fiValueIe = fiValueType.GetMethod("EnumerateArray", new Type[0])?.Invoke(fi.Value, null) as IEnumerable;
+                                var fiValueList = new List<string>();
+                                foreach (var fiValueIeItem in fiValueIe)
+                                {
+                                    if (fiValueIeItem is DateTime fiValueIeItemDateTime)
+                                        fiValueList.Add(fiValueIeItemDateTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                                    else
+                                        fiValueList.Add(string.Concat(fiValueIeItem));
+                                }
+                                return fiValueList.ToArray();
+                            }
+                            return fi.Value.ToString().Split(',');
                         }
                         return new string[0];
                     }
 
-                    var sql = _commonExpression.ExpressionWhereLambda(_tables, exp, null, null, _params);
+                    var sql = _commonExpression.ExpressionWhereLambda(_tables, _tableRule, exp, _diymemexpWithTempQuery, null, _params);
 
                     sb.Append(sql);
                 }
                 if (fi.Filters?.Any() == true)
                 {
-                    if (string.IsNullOrEmpty(fi.Field) == false)
-                        sb.Append(" AND ");
-                    if (fi.Logic == DynamicFilterLogic.Or) sb.Append("(");
-                    for (var x = 0; x < fi.Filters.Count; x++)
-                        ParseFilter(fi.Logic, fi.Filters[x], x == fi.Filters.Count - 1);
-                    if (fi.Logic == DynamicFilterLogic.Or) sb.Append(")");
+                    fi.Filters = fi.Filters.Where(a => IsIgnoreFilter(a) == false).ToList(); //忽略 like '%%'
+
+                    if (fi.Filters.Any())
+                    {
+                        if (string.IsNullOrEmpty(fi.Field) == false)
+                            sb.Append(" AND ");
+                        if (fi.Logic == DynamicFilterLogic.Or) sb.Append("(");
+                        for (var x = 0; x < fi.Filters.Count; x++)
+                            ParseFilter(fi.Logic, fi.Filters[x], x == fi.Filters.Count - 1);
+                        if (fi.Logic == DynamicFilterLogic.Or) sb.Append(")");
+                    }
                 }
 
                 if (isend == false)
@@ -1177,14 +1316,36 @@ namespace FreeSql.Internal.CommonProvider
                     }
                 }
             }
+
+            bool IsIgnoreFilter(DynamicFilterInfo testFilter)
+            {
+                return string.IsNullOrEmpty(testFilter.Field) == false &&
+                    new[] { DynamicFilterOperator.Contains, DynamicFilterOperator.StartsWith, DynamicFilterOperator.EndsWith }.Contains(testFilter.Operator) &&
+                    string.IsNullOrEmpty(testFilter.Value?.ToString());
+            }
         }
+        static ConcurrentDictionary<MethodInfo, bool> _dicMethodIsDynamicFilterCustomAttribute = new ConcurrentDictionary<MethodInfo, bool>();
+        static bool MethodIsDynamicFilterCustomAttribute(MethodInfo method) => _dicMethodIsDynamicFilterCustomAttribute.GetOrAdd(method, m =>
+        {
+            object[] attrs = null;
+            try
+            {
+                attrs = m.GetCustomAttributes(false).ToArray(); //.net core 反射存在版本冲突问题，导致该方法异常
+            }
+            catch { }
+
+            var dyattr = attrs?.Where(a =>
+            {
+                return ((a as Attribute)?.TypeId as Type)?.Name == "DynamicFilterCustomAttribute";
+            }).FirstOrDefault();
+            return dyattr != null;
+        });
 
         public TSelect DisableGlobalFilter(params string[] name)
         {
             if (_whereGlobalFilter.Any() == false) return this as TSelect;
             if (name?.Any() != true)
             {
-                _whereCascadeExpression.RemoveRange(0, _whereGlobalFilter.Count);
                 _whereGlobalFilter.Clear();
                 return this as TSelect;
             }
@@ -1193,403 +1354,192 @@ namespace FreeSql.Internal.CommonProvider
                 if (n == null) continue;
                 var idx = _whereGlobalFilter.FindIndex(a => string.Compare(a.Name, n, true) == 0);
                 if (idx == -1) continue;
-                _whereCascadeExpression.RemoveAt(idx);
                 _whereGlobalFilter.RemoveAt(idx);
             }
             return this as TSelect;
         }
-        public TSelect ForUpdate(bool noawait = false)
+        public TSelect ForUpdate(bool noawait = false, bool skipLocked = false)
         {
-            if (_transaction == null && _orm.Ado.TransactionCurrentThread == null)
-                throw new Exception("安全起见，请务必在事务开启之后，再使用 ForUpdate");
+            if (_transaction == null && _orm.Ado.TransactionCurrentThread != null) this.WithTransaction(_orm.Ado.TransactionCurrentThread);
+            if (_transaction == null && _resolveHookTransaction != null) this.WithTransaction(_resolveHookTransaction());
+            if (_transaction == null) throw new Exception($"{CoreErrorStrings.Begin_Transaction_Then_ForUpdate}");
             switch (_orm.Ado.DataType)
             {
                 case DataType.MySql:
                 case DataType.OdbcMySql:
-                    _tosqlAppendContent = " for update";
+                case DataType.CustomMySql:
+                    _tosqlAppendContent = $"{_tosqlAppendContent} for update{(skipLocked ? " skip locked" : "")}";
                     break;
                 case DataType.SqlServer:
                 case DataType.OdbcSqlServer:
-                    _aliasRule = (_, old) => $"{old} With(UpdLock, RowLock{(noawait ? ", NoWait" : "")})";
+                case DataType.CustomSqlServer:
+                    _aliasRule = (_, old) => $"{old} With(UpdLock, RowLock{(noawait ? ", NoWait" : "")}{(skipLocked ? ", ReadPast" : "")})";
                     break;
                 case DataType.PostgreSQL:
                 case DataType.OdbcPostgreSQL:
-                case DataType.OdbcKingbaseES:
-                    _tosqlAppendContent = $" for update{(noawait ? " nowait" : "")}";
+                case DataType.CustomPostgreSQL:
+                case DataType.KingbaseES:
+                case DataType.Xugu:
+                    _tosqlAppendContent = $"{_tosqlAppendContent} for update{(noawait ? " nowait" : "")}{(skipLocked ? " skip locked" : "")}";
                     break;
                 case DataType.Oracle:
                 case DataType.OdbcOracle:
+                case DataType.CustomOracle:
                 case DataType.Dameng:
-                case DataType.OdbcDameng:
-                    _tosqlAppendContent = $" for update{(noawait ? " nowait" : "")}";
+                    _tosqlAppendContent = $"{_tosqlAppendContent} for update{(noawait ? " nowait" : "")}{(skipLocked ? " skip locked" : "")}";
                     break;
                 case DataType.Sqlite:
                     break;
+                case DataType.GBase:
                 case DataType.ShenTong: //神通测试中发现，不支持 nowait
-                    _tosqlAppendContent = " for update";
+                    _tosqlAppendContent = $"{_tosqlAppendContent} for update";
+                    break;
+                case DataType.Firebird:
+                    _tosqlAppendContent = $"{_tosqlAppendContent} for update with lock{(skipLocked ? " skip locked" : "")}";
                     break;
             }
             return this as TSelect;
         }
-        #region common
 
-        protected double InternalAvg(Expression exp)
+        public ISelect<TDto> InternalWithTempQuery<TDto>(Expression selector)
         {
-            var list = this.ToList<double>($"avg({_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, exp, true, null)}){_commonUtils.FieldAsAlias("as1")}");
-            return list.Sum() / list.Count;
-        }
-        protected TMember InternalMax<TMember>(Expression exp) => this.ToList<TMember>($"max({_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, exp, true, null)}){_commonUtils.FieldAsAlias("as1")}").Max();
-        protected TMember InternalMin<TMember>(Expression exp) => this.ToList<TMember>($"min({_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, exp, true, null)}){_commonUtils.FieldAsAlias("as1")}").Min();
-        protected decimal InternalSum(Expression exp) => this.ToList<decimal>($"sum({_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, exp, true, null)}){_commonUtils.FieldAsAlias("as1")}").Sum();
-
-        public ISelectGrouping<TKey, TValue> InternalGroupBy<TKey, TValue>(Expression columns)
-        {
-            var map = new ReadAnonymousTypeInfo();
-            var field = new StringBuilder();
-            var index = -10000; //临时规则，不返回 as1
-
-            _commonExpression.ReadAnonymousField(_tables, field, map, ref index, columns, null, _whereCascadeExpression, false); //不走 DTO 映射
-            var sql = field.ToString();
-            this.GroupBy(sql.Length > 0 ? sql.Substring(2) : null);
-            return new SelectGroupingProvider<TKey, TValue>(_orm, this, map, sql, _commonExpression, _tables);
-        }
-        public TSelect InternalJoin(Expression exp, SelectTableInfoType joinType)
-        {
-            _commonExpression.ExpressionJoinLambda(_tables, joinType, exp, null, _whereCascadeExpression);
-            return this as TSelect;
-        }
-        protected TSelect InternalJoin<T2>(Expression exp, SelectTableInfoType joinType)
-        {
-            var tb = _commonUtils.GetTableByEntity(typeof(T2));
-            if (tb == null) throw new ArgumentException("T2 类型错误");
-            _tables.Add(new SelectTableInfo { Table = tb, Alias = $"IJ{_tables.Count}", On = null, Type = joinType });
-            _commonExpression.ExpressionJoinLambda(_tables, joinType, exp, null, _whereCascadeExpression);
-            return this as TSelect;
-        }
-        protected TSelect InternalOrderBy(Expression column) => this.OrderBy(_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, column, true, null));
-        protected TSelect InternalOrderByDescending(Expression column) => this.OrderBy($"{_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, column, true, null)} DESC");
-
-        public List<TReturn> InternalToList<TReturn>(Expression select) => this.ToListMapReader<TReturn>(this.GetExpressionField(select));
-        protected string InternalToSql<TReturn>(Expression select, FieldAliasOptions fieldAlias = FieldAliasOptions.AsIndex)
-        {
-            var af = this.GetExpressionField(select, fieldAlias);
-            return this.ToSql(af.field);
-        }
-
-        protected DataTable InternalToDataTable(Expression select)
-        {
-            var sql = this.InternalToSql<int>(select, FieldAliasOptions.AsProperty); //DataTable 使用 AsProperty
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            DataTable ret = null;
-            Exception exception = null;
-            try
+            if (_orm.CodeFirst.IsAutoSyncStructure)
+                (_orm.CodeFirst as CodeFirstProvider)._dicSycedTryAdd(typeof(TDto)); //._dicSyced.TryAdd(typeof(TReturn), true);
+            var ret = (_orm as BaseDbProvider).CreateSelectProvider<TDto>(null) as Select1Provider<TDto>;
+            ret._commandTimeout = _commandTimeout;
+            ret._connection = _connection;
+            ret._transaction = _transaction;
+            ret._whereGlobalFilter = new List<GlobalFilter.Item>(_whereGlobalFilter.ToArray());
+            ret._cancel = _cancel;
+            if (ret._tables[0].Table == null) ret._tables[0].Table = TableInfo.GetDefaultTable(typeof(TDto));
+            if (selector is LambdaExpression lambdaExp && lambdaExp != null)
             {
-                ret = _orm.Ado.ExecuteDataTable(_connection, _transaction, CommandType.Text, sql, dbParms);
+                for (var a = 0; a < lambdaExp.Parameters.Count; a++)
+                    _tables[a].Parameter = lambdaExp.Parameters[a];
             }
-            catch (Exception ex)
+            var parser = new WithTempQueryParser(this, null, selector, ret._tables[0]);
+            if (this._select.StartsWith("WITH "))
             {
-                exception = ex;
-                throw ex;
+                ret._select = this._select;
+                this._select = "SELECT ";
             }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
+            var sql = $"\r\n{this.ToSql(parser._insideSelectList[0].InsideField)}";
+            ret.WithSql(sql);
+            ret._diymemexpWithTempQuery = parser;
+            ret._params.AddRange(_params);
             return ret;
         }
 
-        protected TReturn InternalToAggregate<TReturn>(Expression select)
-        {
-            var map = new ReadAnonymousTypeInfo();
-            var field = new StringBuilder();
-            var index = 0;
-
-            _commonExpression.ReadAnonymousField(_tables, field, map, ref index, select, null, _whereCascadeExpression, false); //不走 DTO 映射
-            return this.ToListMapReader<TReturn>(new ReadAnonymousTypeAfInfo(map, field.Length > 0 ? field.Remove(0, 2).ToString() : null)).FirstOrDefault();
-        }
-
-        public TSelect InternalWhere(Expression exp) => exp == null ? this as TSelect : this.Where(_commonExpression.ExpressionWhereLambda(_tables, exp, null, _whereCascadeExpression, _params));
-        #endregion
-
-#if net40
-#else
-        async public Task<bool> AnyAsync()
+        public bool Any()
         {
             this.Limit(1);
-            return (await this.ToListAsync<int>($"1{_commonUtils.FieldAsAlias("as1")}")).Sum() > 0; //这里的 Sum 为了分表查询
+            return this.ToList<int>($"{1}{_commonUtils.FieldAsAlias("as1")}").Sum() > 0; //这里的 Sum 为了分表查询
         }
-
-        async public Task<long> CountAsync()
+        public long Count()
         {
             var tmpOrderBy = _orderby;
-            _orderby = null;
+            var tmpSkip = _skip;
+            var tmpLimit = _limit;
+            var tmpDistinct = _distinct;
+            _orderby = null; //解决 select count(1) from t order by id 这样的 SQL 错误
+            _skip = 0;
+            _limit = 0;
+            _distinct = false;
             try
             {
-                return (await this.ToListAsync<int>($"count(1){_commonUtils.FieldAsAlias("as1")}")).Sum(); //这里的 Sum 为了分表查询
+                var countField = "1";
+                if (tmpDistinct && _selectExpression != null) countField = $"distinct {this.GetExpressionField(_selectExpression, FieldAliasOptions.AsEmpty).field}";
+                return this.ToList<int>($"count({countField}){_commonUtils.FieldAsAlias("as1")}").Sum(); //这里的 Sum 为了分表查询
             }
             finally
             {
                 _orderby = tmpOrderBy;
+                _skip = tmpSkip;
+                _limit = tmpLimit;
+                _distinct = tmpDistinct;
             }
         }
-
-        async public Task<DataTable> ToDataTableAsync(string field = null)
+        public TSelect Count(out long count)
         {
-            var sql = this.ToSql(field);
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            DataTable ret = null;
-            Exception exception = null;
-            try
-            {
-                ret = await _orm.Ado.ExecuteDataTableAsync(_connection, _transaction, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            return ret;
+            count = this.Count();
+            return this as TSelect;
         }
-
-        async public Task<List<TTuple>> ToListAsync<TTuple>(string field)
+        public List<T1> ToList() => ToList(false);
+        public virtual List<T1> ToList(bool includeNestedMembers)
         {
-            var sql = this.ToSql(field);
-            var type = typeof(TTuple);
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new List<TTuple>();
-            var flagStr = $"ToListField:{field}";
-            Exception exception = null;
-            try
+            if (_diymemexpWithTempQuery is WithTempQueryParser withTempQueryParser && withTempQueryParser != null)
             {
-                await _orm.Ado.ExecuteReaderAsync(_connection, _transaction, dr =>
+                if (withTempQueryParser._outsideTable[0] != _tables[0])
                 {
-                    var read = Utils.ExecuteArrayRowReadClassOrTuple(flagStr, type, null, dr, 0, _commonUtils);
-                    ret.Add((TTuple)read.Value);
-                    return Task.FromResult(false);
-                }, CommandType.Text, sql, dbParms);
+                    var tp = Expression.Parameter(_tables[0].Table.Type, _tables[0].Alias);
+                    _tables[0].Parameter = tp;
+                    return this.InternalToList<T1>(tp);
+                }
+                return this.ToListMapReaderPrivate<T1>(withTempQueryParser._insideSelectList[0].InsideAf, null);
             }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            return ret;
+            if (_selectExpression != null) return this.InternalToList<T1>(_selectExpression);
+            return this.ToListPrivate(includeNestedMembers == false ? this.GetAllFieldExpressionTreeLevel2() : this.GetAllFieldExpressionTreeLevelAll(), null);
         }
-
-        async internal Task<List<T1>> ToListAfPrivateAsync(string sql, GetAllFieldExpressionTreeInfo af, ReadAnonymousTypeOtherInfo[] otherData)
-        {
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new List<T1>();
-            Exception exception = null;
-            try
-            {
-                await _orm.Ado.ExecuteReaderAsync(_connection, _transaction, dr =>
-                {
-                    ret.Add(af.Read(_orm, dr));
-                    if (otherData != null)
-                    {
-                        var idx = af.FieldCount - 1;
-                        foreach (var other in otherData)
-                            other.retlist.Add(_commonExpression.ReadAnonymous(other.read, dr, ref idx, false, null));
-                    }
-                    return Task.FromResult(false);
-                }, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            foreach (var include in _includeToListAsync) await include?.Invoke(ret);
-            _trackToList?.Invoke(ret);
-            return ret;
-        }
-
-        internal Task<List<T1>> ToListPrivateAsync(GetAllFieldExpressionTreeInfo af, ReadAnonymousTypeOtherInfo[] otherData)
-        {
-            string sql = null;
-            if (otherData?.Length > 0)
-            {
-                var sbField = new StringBuilder().Append(af.Field);
-                foreach (var other in otherData)
-                    sbField.Append(other.field);
-                sql = this.ToSql(sbField.ToString());
-            }
-            else
-                sql = this.ToSql(af.Field);
-
-            return ToListAfPrivateAsync(sql, af, otherData);
-        }
-
-        public Task<Dictionary<TKey, T1>> ToDictionaryAsync<TKey>(Func<T1, TKey> keySelector) => ToDictionaryAsync(keySelector, a => a);
-        async public Task<Dictionary<TKey, TElement>> ToDictionaryAsync<TKey, TElement>(Func<T1, TKey> keySelector, Func<T1, TElement> elementSelector)
-        {
-            if (keySelector == null) throw new ArgumentNullException(nameof(keySelector));
-            if (elementSelector == null) throw new ArgumentNullException(nameof(elementSelector));
-            var af = this.GetAllFieldExpressionTreeLevel2();
-            var sql = this.ToSql(af.Field);
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new Dictionary<TKey, TElement>();
-            Exception exception = null;
-            try
-            {
-                await _orm.Ado.ExecuteReaderAsync(_connection, _transaction, dr =>
-                {
-                    var item = af.Read(_orm, dr);
-                    ret.Add(keySelector(item), elementSelector(item));
-                    return Task.FromResult(false);
-                }, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            if (typeof(TElement) == typeof(T1)) _trackToList?.Invoke(ret.Values);
-            return ret;
-        }
-        public virtual Task<List<T1>> ToListAsync(bool includeNestedMembers = false)
-        {
-            if (_selectExpression != null) return this.InternalToListAsync<T1>(_selectExpression);
-            return this.ToListPrivateAsync(includeNestedMembers == false ? this.GetAllFieldExpressionTreeLevel2() : this.GetAllFieldExpressionTreeLevelAll(), null);
-        }
-
-        async public Task<T1> ToOneAsync()
+        public T1 ToOne()
         {
             this.Limit(1);
-            return (await this.ToListAsync()).FirstOrDefault();
+            return this.ToList().FirstOrDefault();
         }
+        public T1 First() => this.ToOne();
 
-        public Task<T1> FirstAsync() => this.ToOneAsync();
-
-        async internal Task<List<TReturn>> ToListMrPrivateAsync<TReturn>(string sql, ReadAnonymousTypeAfInfo af, ReadAnonymousTypeOtherInfo[] otherData)
+#if net40
+#else
+        async public Task<bool> AnyAsync(CancellationToken cancellationToken = default)
         {
-            var type = typeof(TReturn);
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            var ret = new List<TReturn>();
-            Exception exception = null;
+            this.Limit(1);
+            return (await this.ToListAsync<int>($"1{_commonUtils.FieldAsAlias("as1")}", cancellationToken)).Sum() > 0; //这里的 Sum 为了分表查询
+        }
+        async public Task<long> CountAsync(CancellationToken cancellationToken = default)
+        {
+            var tmpOrderBy = _orderby;
+            var tmpSkip = _skip;
+            var tmpLimit = _limit;
+            var tmpDistinct = _distinct;
+            _orderby = null;
+            _skip = 0;
+            _limit = 0;
+            _distinct = false;
             try
             {
-                await _orm.Ado.ExecuteReaderAsync(_connection, _transaction, dr =>
+                var countField = "1";
+                if (tmpDistinct && _selectExpression != null) countField = $"distinct {this.GetExpressionField(_selectExpression, FieldAliasOptions.AsEmpty).field}";
+                return (await this.ToListAsync<int>($"count({countField}){_commonUtils.FieldAsAlias("as1")}", cancellationToken)).Sum(); //这里的 Sum 为了分表查询
+            }
+            finally
+            {
+                _orderby = tmpOrderBy;
+                _skip = tmpSkip;
+                _limit = tmpLimit;
+                _distinct = tmpDistinct;
+            }
+        }
+        public Task<List<T1>> ToListAsync(CancellationToken cancellationToken = default) => ToListAsync(false, cancellationToken);
+        public virtual Task<List<T1>> ToListAsync(bool includeNestedMembers = false, CancellationToken cancellationToken = default)
+        {
+            if (_diymemexpWithTempQuery is WithTempQueryParser withTempQueryParser && withTempQueryParser != null)
+            {
+                if (withTempQueryParser._outsideTable[0] != _tables[0])
                 {
-                    var index = -1;
-                    ret.Add((TReturn)_commonExpression.ReadAnonymous(af.map, dr, ref index, false, null));
-                    if (otherData != null)
-                        foreach (var other in otherData)
-                            other.retlist.Add(_commonExpression.ReadAnonymous(other.read, dr, ref index, false, null));
-                    return Task.FromResult(false);
-                }, CommandType.Text, sql, dbParms);
+                    var tp = Expression.Parameter(_tables[0].Table.Type, _tables[0].Alias);
+                    _tables[0].Parameter = tp;
+                    return this.InternalToListAsync<T1>(tp, cancellationToken);
+                }
+                return this.ToListMapReaderPrivateAsync<T1>(withTempQueryParser._insideSelectList[0].InsideAf, null, cancellationToken);
             }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            if (typeof(TReturn) == typeof(T1))
-                foreach (var include in _includeToListAsync) await include?.Invoke(ret);
-            _trackToList?.Invoke(ret);
-            return ret;
+            if (_selectExpression != null) return this.InternalToListAsync<T1>(_selectExpression, cancellationToken);
+            return this.ToListPrivateAsync(includeNestedMembers == false ? this.GetAllFieldExpressionTreeLevel2() : this.GetAllFieldExpressionTreeLevelAll(), null, cancellationToken);
         }
-        internal Task<List<TReturn>> ToListMapReaderPrivateAsync<TReturn>(ReadAnonymousTypeAfInfo af, ReadAnonymousTypeOtherInfo[] otherData)
+        async public Task<T1> ToOneAsync(CancellationToken cancellationToken = default)
         {
-            string sql = null;
-            if (otherData?.Length > 0)
-            {
-                var sbField = new StringBuilder().Append(af.field);
-                foreach (var other in otherData)
-                    sbField.Append(other.field);
-                sql = this.ToSql(sbField.ToString());
-            }
-            else
-                sql = this.ToSql(af.field);
-
-            return ToListMrPrivateAsync<TReturn>(sql, af, otherData);
+            this.Limit(1);
+            return (await this.ToListAsync(false, cancellationToken)).FirstOrDefault();
         }
-        protected Task<List<TReturn>> ToListMapReaderAsync<TReturn>(ReadAnonymousTypeAfInfo af) => ToListMapReaderPrivateAsync<TReturn>(af, null);
-
-        async protected Task<double> InternalAvgAsync(Expression exp)
-        {
-            var list = await this.ToListAsync<double>($"avg({_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, exp, true, null)}){_commonUtils.FieldAsAlias("as1")}");
-            return list.Sum() / list.Count;
-        }
-        async protected Task<TMember> InternalMaxAsync<TMember>(Expression exp) => (await this.ToListAsync<TMember>($"max({_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, exp, true, null)}){_commonUtils.FieldAsAlias("as1")}")).Max();
-        async protected Task<TMember> InternalMinAsync<TMember>(Expression exp) => (await this.ToListAsync<TMember>($"min({_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, exp, true, null)}){_commonUtils.FieldAsAlias("as1")}")).Min();
-        async protected Task<decimal> InternalSumAsync(Expression exp) => (await this.ToListAsync<decimal>($"sum({_commonExpression.ExpressionSelectColumn_MemberAccess(_tables, null, SelectTableInfoType.From, exp, true, null)}){_commonUtils.FieldAsAlias("as1")}")).Sum();
-
-        protected Task<List<TReturn>> InternalToListAsync<TReturn>(Expression select) => this.ToListMapReaderAsync<TReturn>(this.GetExpressionField(select));
-
-        async protected Task<DataTable> InternalToDataTableAsync(Expression select)
-        {
-            var sql = this.InternalToSql<int>(select, FieldAliasOptions.AsProperty); //DataTable 使用 AsProperty
-            var dbParms = _params.ToArray();
-            var before = new Aop.CurdBeforeEventArgs(_tables[0].Table.Type, _tables[0].Table, Aop.CurdType.Select, sql, dbParms);
-            _orm.Aop.CurdBeforeHandler?.Invoke(this, before);
-            DataTable ret = null;
-            Exception exception = null;
-            try
-            {
-                ret = await _orm.Ado.ExecuteDataTableAsync(_connection, _transaction, CommandType.Text, sql, dbParms);
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-                throw ex;
-            }
-            finally
-            {
-                var after = new Aop.CurdAfterEventArgs(before, exception, ret);
-                _orm.Aop.CurdAfterHandler?.Invoke(this, after);
-            }
-            return ret;
-        }
-
-        async protected Task<TReturn> InternalToAggregateAsync<TReturn>(Expression select)
-        {
-            var map = new ReadAnonymousTypeInfo();
-            var field = new StringBuilder();
-            var index = 0;
-
-            _commonExpression.ReadAnonymousField(_tables, field, map, ref index, select, null, _whereCascadeExpression, false); //不走 DTO 映射
-            return (await this.ToListMapReaderAsync<TReturn>(new ReadAnonymousTypeAfInfo(map, field.Length > 0 ? field.Remove(0, 2).ToString() : null))).FirstOrDefault();
-        }
+        public Task<T1> FirstAsync(CancellationToken cancellationToken = default) => this.ToOneAsync(cancellationToken);
 #endif
     }
 }

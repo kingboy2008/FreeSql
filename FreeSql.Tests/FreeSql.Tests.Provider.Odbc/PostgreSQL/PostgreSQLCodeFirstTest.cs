@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+ï»¿using FreeSql.DataAnnotations;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -14,6 +14,26 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
 {
     public class PostgreSQLCodeFirstTest
     {
+        [Fact]
+        public void Test_0String()
+        {
+            var fsql = g.pgsql;
+            fsql.Delete<test_0string01>().Where("1=1").ExecuteAffrows();
+
+            Assert.Equal(1, fsql.Insert(new test_0string01 { name = @"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000" }).ExecuteAffrows());
+            Assert.Equal(1, fsql.Insert(new test_0string01 { name = @"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000" }).NoneParameter().ExecuteAffrows());
+
+            var list = fsql.Select<test_0string01>().ToList();
+            Assert.Equal(2, list.Count);
+            Assert.Equal(@"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000", list[0].name);
+            Assert.Equal(@"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000", list[1].name);
+        }
+        class test_0string01
+        {
+            public Guid id { get; set; }
+            public string name { get; set; }
+        }
+
         [Fact]
         public void StringLength()
         {
@@ -31,53 +51,53 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
         }
 
         [Fact]
-        public void ÖĞÎÄ±í_×Ö¶Î()
+        public void ä¸­æ–‡è¡¨_å­—æ®µ()
         {
-            var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<²âÊÔÖĞÎÄ±í>();
-            g.pgsql.CodeFirst.SyncStructure<²âÊÔÖĞÎÄ±í>();
+            var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<æµ‹è¯•ä¸­æ–‡è¡¨>();
+            g.pgsql.CodeFirst.SyncStructure<æµ‹è¯•ä¸­æ–‡è¡¨>();
 
-            var item = new ²âÊÔÖĞÎÄ±í
+            var item = new æµ‹è¯•ä¸­æ–‡è¡¨
             {
-                ±êÌâ = "²âÊÔ±êÌâ",
-                ´´½¨Ê±¼ä = DateTime.Now
+                æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜",
+                åˆ›å»ºæ—¶é—´ = DateTime.Now
             };
-            Assert.Equal(1, g.pgsql.Insert<²âÊÔÖĞÎÄ±í>().AppendData(item).ExecuteAffrows());
-            Assert.NotEqual(Guid.Empty, item.±àºÅ);
-            var item2 = g.pgsql.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            Assert.Equal(1, g.pgsql.Insert<æµ‹è¯•ä¸­æ–‡è¡¨>().AppendData(item).ExecuteAffrows());
+            Assert.NotEqual(Guid.Empty, item.ç¼–å·);
+            var item2 = g.pgsql.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ";
-            Assert.Equal(1, g.pgsql.Update<²âÊÔÖĞÎÄ±í>().SetSource(item).ExecuteAffrows());
-            item2 = g.pgsql.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°";
+            Assert.Equal(1, g.pgsql.Update<æµ‹è¯•ä¸­æ–‡è¡¨>().SetSource(item).ExecuteAffrows());
+            item2 = g.pgsql.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ_repo";
-            var repo = g.pgsql.GetRepository<²âÊÔÖĞÎÄ±í>();
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°_repo";
+            var repo = g.pgsql.GetRepository<æµ‹è¯•ä¸­æ–‡è¡¨>();
             Assert.Equal(1, repo.Update(item));
-            item2 = g.pgsql.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item2 = g.pgsql.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ_repo22";
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°_repo22";
             Assert.Equal(1, repo.Update(item));
-            item2 = g.pgsql.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item2 = g.pgsql.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
         }
-        class ²âÊÔÖĞÎÄ±í
+        class æµ‹è¯•ä¸­æ–‡è¡¨
         {
             [Column(IsPrimary = true)]
-            public Guid ±àºÅ { get; set; }
+            public Guid ç¼–å· { get; set; }
 
-            public string ±êÌâ { get; set; }
+            public string æ ‡é¢˜ { get; set; }
 
-            public DateTime ´´½¨Ê±¼ä { get; set; }
+            public DateTime åˆ›å»ºæ—¶é—´ { get; set; }
         }
 
         [Fact]
@@ -85,11 +105,12 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
         {
             var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<AddUniquesInfo>();
             g.pgsql.CodeFirst.SyncStructure<AddUniquesInfo>();
+            g.pgsql.CodeFirst.SyncStructure(typeof(AddUniquesInfo), "AddUniquesInfo1");
         }
         [Table(Name = "AddUniquesInfo", OldName = "AddUniquesInfo2")]
-        [Index("uk_phone", "phone", true)]
-        [Index("uk_group_index", "group,index", true)]
-        [Index("uk_group_index22", "group, index22", true)]
+        [Index("{tablename}_uk_phone", "phone", true)]
+        [Index("{tablename}_uk_group_index", "group,index", true)]
+        [Index("{tablename}_uk_group_index22", "group, index22", true)]
         class AddUniquesInfo
         {
             public Guid id { get; set; }
@@ -104,8 +125,8 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
         public void AddField()
         {
             var sql = g.pgsql.CodeFirst.GetComparisonDDLStatements<TopicAddField>();
+            Assert.True(string.IsNullOrEmpty(sql)); //æµ‹è¯•è¿è¡Œä¸¤æ¬¡å
             g.pgsql.Select<TopicAddField>();
-
             var id = g.pgsql.Insert<TopicAddField>().AppendData(new TopicAddField { }).ExecuteIdentity();
         }
 
@@ -159,7 +180,7 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
                 testFieldBoolNullable = true,
                 testFieldByte = byte.MaxValue,
                 testFieldByteNullable = byte.MinValue,
-                testFieldBytes = Encoding.UTF8.GetBytes("ÎÒÊÇÖĞ¹úÈË"),
+                testFieldBytes = Encoding.UTF8.GetBytes("æˆ‘æ˜¯ä¸­å›½äºº"),
                 testFieldDateTime = DateTime.Now,
                 testFieldDateTimeNullable = DateTime.Now.AddDays(-1),
                 testFieldDecimal = 999.99M,
@@ -182,7 +203,8 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
                 testFieldSByteNullable = sbyte.MinValue,
                 testFieldShort = short.MaxValue,
                 testFieldShortNullable = short.MinValue,
-                testFieldString = "ÎÒÊÇÖĞ¹úÈËstring'\\?!@#$%^&*()_+{}}{~?><<>",
+                testFieldString = "æˆ‘æ˜¯ä¸­å›½äººstring'\\?!@#$%^&*()_+{}}{~?><<>",
+                testFieldChar = 'X',
                 testFieldTimeSpan = TimeSpan.FromDays(1),
                 testFieldTimeSpanNullable = TimeSpan.FromSeconds(90),
                 testFieldUInt = uint.MaxValue,
@@ -201,12 +223,15 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
             var item3 = insert.AppendData(item2).ExecuteInserted().First();
             var newitem2 = select.Where(a => a.Id == item3.Id).ToOne();
             Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             item3 = insert.NoneParameter().AppendData(item2).ExecuteInserted().First();
             newitem2 = select.Where(a => a.Id == item3.Id).ToOne();
             Assert.Equal(item2.testFieldString, newitem2.testFieldString);
+            Assert.Equal(item2.testFieldChar, newitem2.testFieldChar);
 
             var items = select.ToList();
+            var itemstb = select.ToDataTable();
         }
 
         [Table(Name = "tb_alltype")]
@@ -231,6 +256,7 @@ namespace FreeSql.Tests.Odbc.PostgreSQL
             public DateTime testFieldDateTime { get; set; }
             public byte[] testFieldBytes { get; set; }
             public string testFieldString { get; set; }
+            public char testFieldChar { get; set; }
             public Guid testFieldGuid { get; set; }
 
             public bool? testFieldBoolNullable { get; set; }

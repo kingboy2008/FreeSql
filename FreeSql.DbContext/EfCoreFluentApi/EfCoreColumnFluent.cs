@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq.Expressions;
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 
 namespace FreeSql.Extensions.EfCoreFluentApi
 {
@@ -54,5 +51,11 @@ namespace FreeSql.Extensions.EfCoreFluentApi
         //{
         //    return this;
         //}
+        public EfCoreColumnFluent HasPrecision(int precision, int scale = 0)
+        {
+            _cf.Precision(precision, scale);
+            return this;
+        }
+
     }
 }

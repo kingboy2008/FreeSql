@@ -1,4 +1,6 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
+using FreeSql.Internal;
+using FreeSql.Internal.Model;
 using MySql.Data.MySqlClient;
 using System;
 using System.Linq;
@@ -54,6 +56,37 @@ namespace FreeSql.Tests.DataAnnotations
             };
 
             var tsql1 = g.mysql.Select<ModelAopConfigEntity>().WhereDynamic(1).ToSql();
+
+            using (var fsql = new FreeSql.FreeSqlBuilder()
+                .UseConnectionString(FreeSql.DataType.Sqlite, "Data Source=:memory:")
+                .UseAutoSyncStructure(true)
+                .UseMappingPriority(MappingPriorityType.Attribute, MappingPriorityType.Aop, MappingPriorityType.FluentApi)
+                .Build())
+            {
+                ColumnInfo localFunc1() => fsql.CodeFirst.GetTableByEntity(typeof(ModelAopConfigEntity01)).Columns["CreatedTime"];
+                ColumnInfo localFunc2() => fsql.CodeFirst.GetTableByEntity(typeof(ModelAopConfigEntity02)).Columns["CreatedTime"];
+
+                Assert.Equal(DateTimeKind.Local, localFunc1().Attribute.ServerTime);
+                Assert.Equal(DateTimeKind.Local, localFunc2().Attribute.ServerTime);
+
+                fsql.CodeFirst.ConfigEntity<ModelAopConfigEntityBase>(a => a.Property(b => b.CreatedTime).ServerTime(DateTimeKind.Utc));
+                Assert.Equal(DateTimeKind.Utc, localFunc1().Attribute.ServerTime);
+                Assert.Equal(DateTimeKind.Utc, localFunc2().Attribute.ServerTime);
+
+                fsql.CodeFirst.ConfigEntity<ModelAopConfigEntityBase>(a => a.Property(b => b.CreatedTime).ServerTime(DateTimeKind.Local));
+                Assert.Equal(DateTimeKind.Local, localFunc1().Attribute.ServerTime);
+                Assert.Equal(DateTimeKind.Local, localFunc2().Attribute.ServerTime);
+
+                fsql.CodeFirst.ConfigEntity<ModelAopConfigEntity01>(a => a.Property(b => b.CreatedTime).ServerTime(DateTimeKind.Utc));
+                Assert.Equal(DateTimeKind.Utc, localFunc1().Attribute.ServerTime);
+
+                fsql.CodeFirst.ConfigEntity<ModelAopConfigEntity02>(a => a.Property(b => b.CreatedTime).ServerTime(DateTimeKind.Utc));
+                Assert.Equal(DateTimeKind.Utc, localFunc2().Attribute.ServerTime);
+
+                fsql.CodeFirst.ConfigEntity<ModelAopConfigEntityBase>(a => a.Property(b => b.CreatedTime).ServerTime(DateTimeKind.Local));
+                Assert.Equal(DateTimeKind.Utc, localFunc1().Attribute.ServerTime);
+                Assert.Equal(DateTimeKind.Utc, localFunc2().Attribute.ServerTime);
+            }
         }
         [System.ComponentModel.DataAnnotations.Schema.Table("xxx")]
         class ModelAopConfigEntity
@@ -62,15 +95,26 @@ namespace FreeSql.Tests.DataAnnotations
             [Column(IsPrimary = false)]
             public int pkid { get; set; }
         }
+        class ModelAopConfigEntityBase
+        {
+            [Column(CanUpdate = false, ServerTime = DateTimeKind.Local)]
+            public virtual DateTime CreatedTime { get; set; }
+        }
+        class ModelAopConfigEntity01 : ModelAopConfigEntityBase
+        {
+        }
+        class ModelAopConfigEntity02 : ModelAopConfigEntityBase
+        {
+        }
 
         [Fact]
         public void Fluent()
         {
             g.mysql.CodeFirst
                 //.ConfigEntity<TestFluenttb1>(a => {
-                //	a.Name("xxdkdkdk1");
-                //	a.Property(b => b.Id).Name("Id22").IsIdentity(true);
-                //	a.Property(b => b.name).DbType("varchar(100)").IsNullable(true);
+                //    a.Name("xxdkdkdk1");
+                //    a.Property(b => b.Id).Name("Id22").IsIdentity(true);
+                //    a.Property(b => b.name).DbType("varchar(100)").IsNullable(true);
                 //})
 
                 .ConfigEntity(typeof(TestFluenttb1), a =>
@@ -179,7 +223,7 @@ namespace FreeSql.Tests.DataAnnotations
             item.title = "testtitle_update";
             item.testfield2 = 0;
             sql = g.mysql.Update<TestCanInsert>().SetSource(item).ToSql().Replace("\r\n", "");
-            Assert.Equal($"UPDATE `TestCanInsert` SET `id` = ?p_0, `title` = ?p_1, `testfield1` = ?p_2 WHERE (`id` = '{item.id}')", sql);
+            Assert.Equal($"UPDATE `TestCanInsert` SET `title` = ?p_0, `testfield1` = ?p_1 WHERE (`id` = '{item.id}')", sql);
 
             Assert.Equal(1, g.mysql.Update<TestCanInsert>().SetSource(item).ExecuteAffrows());
             find = g.mysql.Select<TestCanInsert>().Where(a => a.id == item.id).First();

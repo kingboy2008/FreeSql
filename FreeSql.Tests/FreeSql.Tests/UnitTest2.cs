@@ -1,19 +1,13 @@
-﻿using FreeSql.DataAnnotations;
-using FreeSql;
+﻿using FreeSql;
+using FreeSql.DataAnnotations;
+using kwlib;
+using Microsoft.Data.SqlClient;
 using System;
 using System.Collections.Generic;
-using Xunit;
 using System.Linq;
-using Newtonsoft.Json.Linq;
-using NpgsqlTypes;
-using Npgsql.LegacyPostgis;
 using System.Linq.Expressions;
-using System.Threading.Tasks;
-using System.ComponentModel.DataAnnotations;
 using System.Threading;
-using System.Data.SqlClient;
-using kwlib;
-using System.Text;
+using Xunit;
 
 namespace FreeSql.Tests
 {
@@ -147,6 +141,8 @@ namespace FreeSql.Tests
         public class LinUser
         {
             public long id { get; set; }
+            public string name { get; set; }
+            public string nick { get; set; }
         }
 
         public class Comment
@@ -242,10 +238,22 @@ namespace FreeSql.Tests
             public int id { get; set; }
             public string title { get; set; }
         }
+        public class otot3 : otot1
+        {
+
+        }
 
         [Fact]
         public void Test02()
         {
+            g.sqlite.GlobalFilter
+                .ApplyOnly<otot1>("id1", a => a.name == "123");
+
+            var sqlonly = g.sqlite.Select<otot1, otot2, otot3>()
+                .InnerJoin((a, b, c) => a.id == b.id)
+                .InnerJoin((a, b, c) => b.id == c.id)
+                .ToSql();
+
             g.sqlite.Update<TestIgnoreDefaultValue>(Guid.Empty).Set(a => a.ct1 == a.ct2).ExecuteAffrows();
 
             g.sqlite.Insert(new otot1 { name = "otot1_name1" }).ExecuteAffrows();
@@ -278,6 +286,12 @@ namespace FreeSql.Tests
             var kwrepo = g.sqlite.GetRepository<userinfo>();
             kwrepo.Insert(u1);
 
+            g.sqlite.GlobalFilter.ApplyIf<gf_t1>("random_filter", () => new Random().Next(0, 2) % 2 == 0 ? true : false, a => a.rowstate > 0);
+
+            Enumerable.Range(0, 10).ToList().ForEach(aidx =>
+            {
+                var sql1 = g.sqlite.Select<gf_t1>().ToSql();
+            });
 
             g.sqlite.GlobalFilter.Apply<gf_t1>("gft1", a => a.rowstate > -1 && g.sqlite.Select<gf_t2>().Any(b => b.id == a.id))
                 .Apply<gf_t2>("gft2", a => a.rowstate > -2)
@@ -295,6 +309,13 @@ namespace FreeSql.Tests
                 .Where((a, b, c) => c.rowstate > 10)
                 .ToList();
             g.sqlite.Update<gf_t1>().NoneParameter().Set(a => a.rowstate + 1).Where(a => a.rowstate >= 0).ExecuteAffrows();
+
+            var dddd2sql1 = g.sqlite.Select<gf_t1>()
+                .DisableGlobalFilter()
+                .ToUpdate()
+                //.DisableGlobalFilter()
+                .Set(a => a.rowstate, 10)
+                .ToSql();
 
             var dtot2 = g.sqlite.Select<gf_t1>().ToList(a => new gfDto
             {
@@ -360,6 +381,16 @@ namespace FreeSql.Tests
             var gft1 = g.mysql.Select<gf_t1>().Where(a => a.id == Guid.NewGuid()).ToList();
             var gft2 = g.mysql.Select<gf_t2>().Where(a => a.id == Guid.NewGuid()).ToList();
             var gft3 = g.mysql.Select<gf_t3>().Where(a => a.id == Guid.NewGuid()).ToList();
+
+            var repo1 = g.mysql.GetRepository<gf_t1, Guid>();
+            using (repo1.DataFilter.Disable("gft1", "gft2", "gft3"))
+                repo1.Get(Guid.NewGuid());
+            var repo2 = g.mysql.GetRepository<gf_t2, Guid>();
+            using (repo2.DataFilter.Disable("gft1", "gft2", "gft3"))
+                repo2.Get(Guid.NewGuid());
+            var repo3 = g.mysql.GetRepository<gf_t3, Guid>();
+            using (repo3.DataFilter.Disable("gft1", "gft2", "gft3"))
+                repo3.Get(Guid.NewGuid());
 
             g.sqlserver.Delete<TBatInst>().Where("1=1").ExecuteAffrows();
             g.mysql.Delete<TBatInst>().Where("1=1").ExecuteAffrows();
@@ -501,7 +532,7 @@ namespace FreeSql.Tests
             };
 
 
-            var dbs = g.sqlserver.DbFirst.GetDatabases();
+            //var dbs = g.sqlserver.DbFirst.GetDatabases();
             var tbs = g.sqlserver.DbFirst.GetTablesByDatabase("ds_shop");
 
             var dicParamslist = g.sqlite.Select<SysModule>().Page(1, 10)
@@ -530,9 +561,14 @@ namespace FreeSql.Tests
 
 
             var comments2 = g.mysql.Select<Comment>()
-    .Include(r => r.UserInfo)
-    .From<UserLike>((z, b) => z.LeftJoin(u => u.Id == b.SubjectId))
-    .ToList((a, b) => new { comment = a, b.SubjectId, user = a.UserInfo });
+                .Include(r => r.UserInfo)
+                .From<UserLike>((z, b) => z.LeftJoin(u => u.Id == b.SubjectId))
+                .ToList((a, b) => new { comment = a, b.SubjectId, user = a.UserInfo,
+                    testb1 = a.UserInfo == null ? 1 : 0,
+                    testb2 = a.UserInfo != null ? 2 : 0,
+                    testb4 = b == null ? 3 : 0,
+                    testb5 = b != null ? 4 : 0,
+                });
 
             g.sqlite.Delete<SysModulePermission>().Where("1=1").ExecuteAffrows();
             g.sqlite.Delete<SysModuleButton>().Where("1=1").ExecuteAffrows();

@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -48,6 +48,19 @@ namespace FreeSql.Tests.Odbc.DefaultExpression
             var list = new List<object>();
             list.Add(select.Where(a => a.Title.Equals("aaa")).ToList());
             list.Add(g.odbc.Select<TestEqualsGuid>().Where(a => a.id.Equals(Guid.Empty)).ToList());
+        }
+
+        [Fact]
+        public void First()
+        {
+            Assert.Equal('x', select.First(a => "x1".First()));
+            Assert.Equal('z', select.First(a => "z1".First()));
+        }
+        [Fact]
+        public void FirstOrDefault()
+        {
+            Assert.Equal('x', select.First(a => "x1".FirstOrDefault()));
+            Assert.Equal('z', select.First(a => "z1".FirstOrDefault()));
         }
 
         [Fact]

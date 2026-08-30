@@ -1,14 +1,13 @@
 ﻿using FreeSql.DatabaseModel;
 using FreeSql.Internal;
+using FreeSql.Internal.Model;
 using Newtonsoft.Json.Linq;
 using Npgsql.LegacyPostgis;
 using NpgsqlTypes;
-using FreeSql.Internal.ObjectPool;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -29,24 +28,56 @@ namespace FreeSql.PostgreSQL
             _commonExpression = commonExpression;
         }
 
+        public bool IsPg10 => ServerVersion >= 10;
+        public bool IsPg95 { get; private set; }
+        public bool IsPg96 { get; private set; }
+        public int ServerVersion
+        {
+            get
+            {
+                if (_ServerVersionValue == 0 && _orm.Ado.MasterPool != null)
+                    using (var conn = _orm.Ado.MasterPool.Get())
+                    {
+                        try
+                        {
+                            _ServerVersionValue = ParsePgVersion(conn.Value.ServerVersion, 10, 0).Item2;
+                            IsPg95 = ParsePgVersion(conn.Value.ServerVersion, 9, 5).Item1;
+                            IsPg96 = ParsePgVersion(conn.Value.ServerVersion, 9, 6).Item1;
+                        }
+                        catch
+                        {
+                            _ServerVersionValue = 9;
+                        }
+                    }
+                return _ServerVersionValue;
+            }
+        }
+        int _ServerVersionValue = 0;
+
         public int GetDbType(DbColumnInfo column) => (int)GetNpgsqlDbType(column);
         NpgsqlDbType GetNpgsqlDbType(DbColumnInfo column)
         {
             var dbtype = column.DbTypeText;
-            var isarray = dbtype.EndsWith("[]");
+            var isarray = dbtype?.EndsWith("[]") == true;
             if (isarray) dbtype = dbtype.Remove(dbtype.Length - 2);
             NpgsqlDbType ret = NpgsqlDbType.Unknown;
-            switch (dbtype.ToLower().TrimStart('_'))
+            switch (dbtype?.ToLower().TrimStart('_'))
             {
+                case "smallint":
                 case "int2": ret = NpgsqlDbType.Smallint; break;
+                case "integer":
                 case "int4": ret = NpgsqlDbType.Integer; break;
+                case "bigint":
                 case "int8": ret = NpgsqlDbType.Bigint; break;
                 case "numeric": ret = NpgsqlDbType.Numeric; break;
+                case "real":
                 case "float4": ret = NpgsqlDbType.Real; break;
+                case "double precision":
                 case "float8": ret = NpgsqlDbType.Double; break;
                 case "money": ret = NpgsqlDbType.Money; break;
 
                 case "bpchar": ret = NpgsqlDbType.Char; break;
+                case "character varying":
                 case "varchar": ret = NpgsqlDbType.Varchar; break;
                 case "text": ret = NpgsqlDbType.Text; break;
 
@@ -210,16 +241,37 @@ namespace FreeSql.PostgreSQL
             return ds.Select(a => a.FirstOrDefault()?.ToString()).ToList();
         }
 
-        public List<DbTableInfo> GetTablesByDatabase(params string[] database)
+        public bool ExistsTable(string name, bool ignoreCase)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            var tbname = _commonUtils.SplitTableName(name);
+            if (tbname?.Length == 1) tbname = new[] { "public", tbname[0] };
+            if (ignoreCase) tbname = tbname.Select(a => a.ToLower()).ToArray();
+            var sql = $" select 1 from pg_tables a inner join pg_namespace b on b.nspname = a.schemaname where {(ignoreCase ? "lower(b.nspname)" : "b.nspname")}={_commonUtils.FormatSql("{0}", tbname[0])} and {(ignoreCase ? "lower(a.tablename)" : "a.tablename")}={_commonUtils.FormatSql("{0}", tbname[1])}";
+            return string.Concat(_orm.Ado.ExecuteScalar(CommandType.Text, sql)) == "1";
+        }
+
+        public DbTableInfo GetTableByName(string name, bool ignoreCase = true) => GetTables(null, name, ignoreCase)?.FirstOrDefault();
+        public List<DbTableInfo> GetTablesByDatabase(params string[] database) => GetTables(database, null, false);
+
+        public List<DbTableInfo> GetTables(string[] database, string tablename, bool ignoreCase)
         {
             var olddatabase = "";
             var is96 = true;
             using (var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5)))
             {
                 olddatabase = conn.Value.Database;
-                is96 = PgVersionIs96(conn.Value.ServerVersion);
+                is96 = ParsePgVersion(conn.Value.ServerVersion, 9, 6).Item1;
             }
-            var dbs = database == null || database.Any() == false ? new[] { olddatabase } : database;
+            string[] tbname = null;
+            string[] dbs = database == null || database.Any() == false ? new[] { olddatabase } : database;
+            if (string.IsNullOrEmpty(tablename) == false)
+            {
+                tbname = _commonUtils.SplitTableName(tablename);
+                if (tbname?.Length == 1) tbname = new[] { "public", tbname[0] };
+                if (ignoreCase) tbname = tbname.Select(a => a.ToLower()).ToArray();
+                dbs = new[] { olddatabase };
+            }
             var tables = new List<DbTableInfo>();
 
             foreach (var db in dbs)
@@ -231,7 +283,7 @@ namespace FreeSql.PostgreSQL
                 var loc3 = new Dictionary<string, Dictionary<string, DbColumnInfo>>();
 
                 var sql = $@"
-select
+{(tbname == null ? "" : $"select * from (")}select
 b.nspname || '.' || a.tablename,
 a.schemaname,
 a.tablename ,
@@ -257,7 +309,7 @@ inner join pg_namespace b on b.oid = a.relnamespace
 left join pg_description d on d.objoid = a.oid and objsubid = 0
 where b.nspname not in ('pg_catalog', 'information_schema') and a.relkind in ('m','v') 
 and b.nspname || '.' || a.relname not in ('public.geography_columns','public.geometry_columns','public.raster_columns','public.raster_overviews')
-";
+{(tbname == null ? "" : $") ft_dbf where {(ignoreCase ? "lower(schemaname)" : "schemaname")}={_commonUtils.FormatSql("{0}", tbname[0])} and {(ignoreCase ? "lower(tablename)" : "tablename")}={_commonUtils.FormatSql("{0}", tbname[1])}")}";
                 var ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
                 if (ds == null) return loc1;
 
@@ -327,7 +379,7 @@ d.description as comment,
 a.attndims,
 case when t.typelem = 0 then t.typtype else t2.typtype end,
 ns2.nspname,
-a.attnum
+a.attnum{(IsPg10 ? ", a.attidentity" : "")}
 from pg_class c
 inner join pg_attribute a on a.attnum > 0 and a.attrelid = c.oid
 inner join pg_type t on t.oid = a.atttypid
@@ -340,7 +392,6 @@ where {loc8.ToString().Replace("a.table_name", "ns.nspname || '.' || c.relname")
                 ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
                 if (ds == null) return loc1;
 
-                var position = 0;
                 foreach (object[] row in ds)
                 {
                     var object_id = string.Concat(row[0]);
@@ -349,7 +400,8 @@ where {loc8.ToString().Replace("a.table_name", "ns.nspname || '.' || c.relname")
                     var max_length = int.Parse(string.Concat(row[3]));
                     var sqlType = string.Concat(row[4]);
                     var is_nullable = string.Concat(row[5]) == "1";
-                    var is_identity = string.Concat(row[6]).StartsWith(@"nextval('") && string.Concat(row[6]).EndsWith(@"'::regclass)");
+                    var is_identity = string.Concat(row[6]).StartsWith(@"nextval('") && (string.Concat(row[6]).EndsWith(@"'::regclass)") || string.Concat(row[6]).EndsWith(@"')"))
+                        || IsPg10 && new[] { "a", "d" }.Contains(string.Concat(row[12])); //pg10 GENERATED { BY DEFAULT | AWAYS } AS IDENTITY
                     var comment = string.Concat(row[7]);
                     var defaultValue = string.Concat(row[6]);
                     int attndims = int.Parse(string.Concat(row[8]));
@@ -388,9 +440,9 @@ where {loc8.ToString().Replace("a.table_name", "ns.nspname || '.' || c.relname")
                         DbTypeText = type,
                         DbTypeTextFull = sqlType,
                         Table = loc2[object_id],
-                        Coment = comment,
+                        Comment = comment,
                         DefaultValue = defaultValue,
-                        Position = ++position
+                        Position = attnum
                     });
                     loc3[object_id][column].DbType = this.GetDbType(loc3[object_id][column]);
                     loc3[object_id][column].CsType = this.GetCsTypeInfo(loc3[object_id][column]);
@@ -431,14 +483,14 @@ where {loc8.ToString().Replace("a.table_name", "ns.nspname || '.' || d.relname")
                     var inkey = string.Concat(row[7]).Split(' ');
                     var attnum = int.Parse(string.Concat(row[8]));
                     attnum = int.Parse(inkey[attnum - 1]);
-                    foreach (string tc in loc3[object_id].Keys)
-                    {
-                        if (loc3[object_id][tc].DbTypeText.EndsWith("[]"))
-                        {
-                            column = tc;
-                            break;
-                        }
-                    }
+                    //foreach (string tc in loc3[object_id].Keys) //bug: https://github.com/2881099/FreeSql.Wiki.VuePress/issues/9
+                    //{
+                    //    if (loc3[object_id][tc].DbTypeText.EndsWith("[]"))
+                    //    {
+                    //        column = tc;
+                    //        break;
+                    //    }
+                    //}
                     if (loc3.ContainsKey(object_id) == false || loc3[object_id].ContainsKey(column) == false) continue;
                     var loc9 = loc3[object_id][column];
                     if (loc9.IsPrimary == false && is_primary_key) loc9.IsPrimary = is_primary_key;
@@ -448,14 +500,14 @@ where {loc8.ToString().Replace("a.table_name", "ns.nspname || '.' || d.relname")
                     if (!indexColumns.TryGetValue(object_id, out loc10))
                         indexColumns.Add(object_id, loc10 = new Dictionary<string, DbIndexInfo>());
                     if (!loc10.TryGetValue(index_id, out loc11))
-                        loc10.Add(index_id, loc11 = new DbIndexInfo());
+                        loc10.Add(index_id, loc11 = new DbIndexInfo { Name = index_id });
                     loc11.Columns.Add(new DbIndexColumnInfo { Column = loc9, IsDesc = is_desc });
                     if (is_unique && !is_primary_key)
                     {
                         if (!uniqueColumns.TryGetValue(object_id, out loc10))
                             uniqueColumns.Add(object_id, loc10 = new Dictionary<string, DbIndexInfo>());
                         if (!loc10.TryGetValue(index_id, out loc11))
-                            loc10.Add(index_id, loc11 = new DbIndexInfo());
+                            loc10.Add(index_id, loc11 = new DbIndexInfo { Name = index_id });
                         loc11.Columns.Add(new DbIndexColumnInfo { Column = loc9, IsDesc = is_desc });
                     }
                 }
@@ -473,7 +525,9 @@ where {loc8.ToString().Replace("a.table_name", "ns.nspname || '.' || d.relname")
                     }
                 }
 
-                sql = $@"
+                if (tbname == null)
+                {
+                    sql = $@"
 select
 ns.nspname || '.' || b.relname as table_id, 
 array(select attname from pg_attribute where attrelid = a.conrelid and attnum = any(a.conkey)) as column_name,
@@ -490,39 +544,40 @@ inner join pg_namespace ns on ns.oid = b.relnamespace
 inner join pg_namespace ns2 on ns2.oid = c.relnamespace
 where {loc8.ToString().Replace("a.table_name", "ns.nspname || '.' || b.relname")}
 ";
-                ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
-                if (ds == null) return loc1;
+                    ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
+                    if (ds == null) return loc1;
 
-                var fkColumns = new Dictionary<string, Dictionary<string, DbForeignInfo>>();
-                foreach (object[] row in ds)
-                {
-                    var table_id = string.Concat(row[0]);
-                    var column = row[1] as string[];
-                    var fk_id = string.Concat(row[2]);
-                    var ref_table_id = string.Concat(row[3]);
-                    var is_foreign_key = string.Concat(row[4]) == "1";
-                    var referenced_column = row[5] as string[];
-                    var referenced_db = string.Concat(row[6]);
-                    var referenced_table = string.Concat(row[7]);
-
-                    if (loc2.ContainsKey(ref_table_id) == false) continue;
-
-                    Dictionary<string, DbForeignInfo> loc12 = null;
-                    DbForeignInfo loc13 = null;
-                    if (!fkColumns.TryGetValue(table_id, out loc12))
-                        fkColumns.Add(table_id, loc12 = new Dictionary<string, DbForeignInfo>());
-                    if (!loc12.TryGetValue(fk_id, out loc13))
-                        loc12.Add(fk_id, loc13 = new DbForeignInfo { Table = loc2[table_id], ReferencedTable = loc2[ref_table_id] });
-
-                    for (int a = 0; a < column.Length; a++)
+                    var fkColumns = new Dictionary<string, Dictionary<string, DbForeignInfo>>();
+                    foreach (object[] row in ds)
                     {
-                        loc13.Columns.Add(loc3[table_id][column[a]]);
-                        loc13.ReferencedColumns.Add(loc3[ref_table_id][referenced_column[a]]);
+                        var table_id = string.Concat(row[0]);
+                        var column = row[1] as string[];
+                        var fk_id = string.Concat(row[2]);
+                        var ref_table_id = string.Concat(row[3]);
+                        var is_foreign_key = string.Concat(row[4]) == "1";
+                        var referenced_column = row[5] as string[];
+                        var referenced_db = string.Concat(row[6]);
+                        var referenced_table = string.Concat(row[7]);
+
+                        if (loc2.ContainsKey(ref_table_id) == false) continue;
+
+                        Dictionary<string, DbForeignInfo> loc12 = null;
+                        DbForeignInfo loc13 = null;
+                        if (!fkColumns.TryGetValue(table_id, out loc12))
+                            fkColumns.Add(table_id, loc12 = new Dictionary<string, DbForeignInfo>());
+                        if (!loc12.TryGetValue(fk_id, out loc13))
+                            loc12.Add(fk_id, loc13 = new DbForeignInfo { Table = loc2[table_id], ReferencedTable = loc2[ref_table_id] });
+
+                        for (int a = 0; a < column.Length; a++)
+                        {
+                            loc13.Columns.Add(loc3[table_id][column[a]]);
+                            loc13.ReferencedColumns.Add(loc3[ref_table_id][referenced_column[a]]);
+                        }
                     }
+                    foreach (var table_id in fkColumns.Keys)
+                        foreach (var fk in fkColumns[table_id])
+                            loc2[table_id].ForeignsDict.Add(fk.Key, fk.Value);
                 }
-                foreach (var table_id in fkColumns.Keys)
-                    foreach (var fk in fkColumns[table_id])
-                        loc2[table_id].ForeignsDict.Add(fk.Key, fk.Value);
 
                 foreach (var table_id in loc3.Keys)
                 {
@@ -553,7 +608,7 @@ where {loc8.ToString().Replace("a.table_name", "ns.nspname || '.' || b.relname")
                             bool b2 = loc4.ForeignsDict.Values.Where(fk => fk.Columns.Where(c3 => c3.Name == c2.Name).Any()).Any();
                             compare = b2.CompareTo(b1);
                         }
-                        if (compare == 0) compare = c1.Name.CompareTo(c2.Name);
+                        if (compare == 0) compare = c1.Position.CompareTo(c2.Position);
                         return compare;
                     });
                     loc1.Add(loc4);
@@ -595,13 +650,23 @@ where a.typtype = 'e' and ns.nspname in (SELECT ""schema_name"" FROM information
             return ret.Select(a => new DbEnumInfo { Name = a.Key, Labels = a.Value }).ToList();
         }
 
-        public static bool PgVersionIs96(string serverVersion)
+        public static NativeTuple<bool, int, int> ParsePgVersion(string versionString, int v1, int v2)
         {
-            int[] version = serverVersion.Split('.').Select(a => int.TryParse(a, out var tryint) ? tryint : 0).ToArray();
-            if (version?.Any() != true) return true;
-            if (version[0] > 9) return true;
-            if (version[0] == 9 && version.Length > 1 && version[1] >= 6) return true;
-            return false;
+            int[] version = new int[] { 0, 0 };
+            var vmatch = Regex.Match(versionString, @"(\d+)\.(\d+)");
+            if (vmatch.Success)
+            {
+                version[0] = int.Parse(vmatch.Groups[1].Value);
+                version[1] = int.Parse(vmatch.Groups[2].Value);
+            }
+            else
+            {
+                vmatch = Regex.Match(versionString, @"(\d+)");
+                version[0] = int.Parse(vmatch.Groups[1].Value);
+            }
+            if (version[0] > v1) return NativeTuple.Create(true, version[0], version[1]);
+            if (version[0] == v1 && version[1] >= v2) return NativeTuple.Create(true, version[0], version[1]);
+            return NativeTuple.Create(false, version[0], version[1]);
         }
     }
 }

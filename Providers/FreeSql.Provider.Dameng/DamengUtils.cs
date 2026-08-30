@@ -15,10 +15,10 @@ namespace FreeSql.Dameng
         {
         }
 
-        public override DbParameter AppendParamter(List<DbParameter> _params, string parameterName, ColumnInfo col, Type type, object value)
+        public override DbParameter AppendParamter(List<DbParameter> _params, string parameterName, Internal.Model.ColumnInfo col, Type type, object value)
         {
             if (string.IsNullOrEmpty(parameterName)) parameterName = $"p_{_params?.Count}";
-            var dbtype = (DmDbType)_orm.CodeFirst.GetDbInfo(type)?.type;
+            var dbtype = (DmDbType?)_orm.CodeFirst.GetDbInfo(type)?.type;
             switch (dbtype)
             {
                 case DmDbType.Bit:
@@ -26,14 +26,23 @@ namespace FreeSql.Dameng
                     else value = (bool)value == true ? 1 : 0;
                     dbtype = DmDbType.Int32;
                     break;
-               
+
                 case DmDbType.Char:
                 case DmDbType.VarChar:
                 case DmDbType.Text:
-                    value = string.Concat(value);
+                    if (value == null)
+                    {
+                        value = (string)null;
+                    }
+                    else
+                    {
+                        value = string.Concat(value);
+                    }
                     break;
             }
-            var ret = new DmParameter { ParameterName = QuoteParamterName(parameterName), DmSqlType = dbtype, Value = value };
+            var ret = new DmParameter { ParameterName = QuoteParamterName(parameterName) };
+            if (dbtype != null) ret.DmSqlType = dbtype.Value;
+            ret.Value = value;
             _params?.Add(ret);
             return ret;
         }
@@ -41,27 +50,39 @@ namespace FreeSql.Dameng
         public override DbParameter[] GetDbParamtersByObject(string sql, object obj) =>
             Utils.GetDbParamtersByObject<DmParameter>(sql, obj, null, (name, type, value) =>
             {
-                var dbtype = (DmDbType)_orm.CodeFirst.GetDbInfo(type)?.type;
-                switch (dbtype)
+                var typeint = _orm.CodeFirst.GetDbInfo(type)?.type;
+                var dbtype = typeint != null ? (DmDbType?)typeint : null;
+                if (dbtype != null)
                 {
-                    case DmDbType.Bit:
-                        if (value == null) value = null;
-                        else value = (bool)value == true ? 1 : 0;
-                        dbtype = DmDbType.Int32;
-                        break;
+                    switch (dbtype)
+                    {
+                        case DmDbType.Bit:
+                            if (value == null) value = null;
+                            else value = (bool)value == true ? 1 : 0;
+                            dbtype = DmDbType.Int32;
+                            break;
 
-                    case DmDbType.Char:
-                    case DmDbType.VarChar:
-                    case DmDbType.Text:
-                        value = string.Concat(value);
-                        break;
+                        case DmDbType.Char:
+                        case DmDbType.VarChar:
+                        case DmDbType.Text:
+                            if (value == null)
+                            {
+                                value = (string)null;
+                            }
+                            else
+                            {
+                                value = string.Concat(value);
+                            }
+                            break;
+                    }
                 }
-                var ret = new DmParameter { ParameterName = $":{name}", DmSqlType = dbtype, Value = value };
+                var ret = new DmParameter { ParameterName = $":{name}", Value = value };
+                if (dbtype != null) ret.DmSqlType = dbtype.Value;
                 return ret;
             });
 
         public override string FormatSql(string sql, params object[] args) => sql?.FormatDameng(args);
-        public override string QuoteSqlName(params string[] name)
+        public override string QuoteSqlNameAdapter(params string[] name)
         {
             if (name.Length == 1)
             {
@@ -90,14 +111,23 @@ namespace FreeSql.Dameng
         public override string Now => "systimestamp";
         public override string NowUtc => "getutcdate";
 
-        public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
-        public override string QuoteReadColumn(Type type, Type mapType, string columnName) => columnName;
+        public override string QuoteWriteParamterAdapter(Type type, string paramterName) => paramterName;
+        protected override string QuoteReadColumnAdapter(Type type, Type mapType, string columnName) => columnName;
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, Internal.Model.ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);
-            if (type == typeof(byte[])) return $"hextoraw('{CommonUtils.BytesSqlRaw(value as byte[])}')";
+            if (type == typeof(byte[]))
+            {
+                var valueBytes = value as byte[];
+                if (valueBytes != null)
+                {
+                    if (valueBytes.Length < 2000) return $"hextoraw('{CommonUtils.BytesSqlRaw(valueBytes)}')";
+                    var pam = AppendParamter(specialParams, $"p_{specialParams?.Count}{specialParamFlag}", col, type, value);
+                    return pam.ParameterName;
+                }
+            }
             return FormatSql("{0}", value, 1);
         }
     }

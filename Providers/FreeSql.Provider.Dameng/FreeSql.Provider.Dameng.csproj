@@ -1,50 +1,51 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net45;net40</TargetFrameworks>
-    <Version>1.7.0-preview0705</Version>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <Authors>ncc;YeXiangQin</Authors>
-    <Description>FreeSql 数据库实现，基于 达梦数据库 Ado.net (DmProvider)</Description>
-    <PackageProjectUrl>https://github.com/2881099/FreeSql</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/2881099/FreeSql</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>FreeSql;ORM;DM8;Dameng;达梦</PackageTags>
-    <PackageId>$(AssemblyName)</PackageId>
-    <PackageIcon>logo.png</PackageIcon>
-    <Title>$(AssemblyName)</Title>
-    <IsPackable>true</IsPackable>
-    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFrameworks>net8.0;net6.0;netcoreapp3.1;netstandard2.0;net45;net40</TargetFrameworks>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<Authors>FreeSql;ncc;YeXiangQin</Authors>
+		<Description>FreeSql 数据库实现，基于 达梦数据库 Ado.net (DmProvider)</Description>
+		<PackageProjectUrl>https://github.com/2881099/FreeSql</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/2881099/FreeSql</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageTags>FreeSql;ORM;DM8;Dameng;达梦</PackageTags>
+		<PackageId>$(AssemblyName)</PackageId>
+		<PackageIcon>logo.png</PackageIcon>
+		<Title>$(AssemblyName)</Title>
+		<IsPackable>true</IsPackable>
+		<GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+		<Version>3.5.311</Version>
+		<PackageReadmeFile>readme.md</PackageReadmeFile>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <None Include="../../logo.png" Pack="true" PackagePath="\" />
-    <None Include="lib\DmProvider\netstandard2.0\DmProvider.dll" Pack="true" PackagePath="\lib\netstandard2.0\" />
-    <None Include="lib\DmProvider\net20\DmProvider.dll" Pack="true" PackagePath="\lib\net45\" />
-    <None Include="lib\DmProvider\net20\DmProvider.dll" Pack="true" PackagePath="\lib\net40\" />
-    <None Include="lib/**/*.dll">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
+	<ItemGroup>
+		<None Include="../../readme.md" Pack="true" PackagePath="\" />
+		<None Include="../../logo.png" Pack="true" PackagePath="\" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\..\FreeSql\FreeSql.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<None Include="lib/**/*.dll">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
 
-  <ItemGroup>
-    <Reference Include="DmProvider">
-      <HintPath>lib\DmProvider\netstandard2.0\DmProvider.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="DM.DmProvider" Version="8.3.1.37876" />
+		<PackageReference Include="System.Text.Encoding.CodePages" Version="5.0.0" Condition="'$(TargetFramework)' == 'netcoreapp3.1'" />
+		<PackageReference Include="System.Text.Encoding.CodePages" Version="5.0.0" Condition="'$(TargetFramework)' == 'netstandard2.0'" />
+	</ItemGroup>
 
-  <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <DefineConstants>ns20;netstandard20</DefineConstants>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net40'">
-    <DefineConstants>net40</DefineConstants>
-  </PropertyGroup>
-  
+	<ItemGroup>
+		<ProjectReference Include="..\..\FreeSql\FreeSql.csproj" />
+	</ItemGroup>	
+	<PropertyGroup Condition="'$(TargetFramework)' == 'net8.0' or '$(TargetFramework)' == 'net6.0' or '$(TargetFramework)' == 'netcoreapp3.1' or '$(TargetFramework)' == 'netstandard2.0'">
+		<DefineConstants>ns20;netstandard20</DefineConstants>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(TargetFramework)' == 'net40'">
+		<DefineConstants>net40</DefineConstants>
+	</PropertyGroup>
+
+
 </Project>
-  
+

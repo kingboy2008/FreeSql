@@ -23,6 +23,37 @@ namespace FreeSql.Tests.Dameng
         }
 
         [Fact]
+        public void InsertDictionary()
+        {
+            var fsql = g.dameng;
+            Dictionary<string, object> dic = new Dictionary<string, object>();
+            dic.Add("id", 1);
+            dic.Add("name", "xxxx");
+            var diclist = new List<Dictionary<string, object>>();
+            diclist.Add(dic);
+            diclist.Add(new Dictionary<string, object>
+            {
+                ["id"] = 2,
+                ["name"] = "yyyy"
+            });
+
+            var sql1 = fsql.InsertDict(dic).AsTable("table1").ToSql();
+            Assert.Equal(@"INSERT INTO ""TABLE1""(""ID"", ""NAME"") VALUES(:id_0, :name_0)", sql1);
+            var sql2 = fsql.InsertDict(diclist).AsTable("table1").ToSql();
+            Assert.Equal(@"INSERT ALL
+INTO ""TABLE1""(""ID"", ""NAME"") VALUES(:id_0, :name_0)
+INTO ""TABLE1""(""ID"", ""NAME"") VALUES(:id_1, :name_1)
+ SELECT 1 FROM DUAL", sql2);
+            var sql3 = fsql.InsertDict(dic).AsTable("table1").NoneParameter().ToSql();
+            Assert.Equal(@"INSERT INTO ""TABLE1""(""ID"", ""NAME"") VALUES(1, 'xxxx')", sql3);
+            var sql4 = fsql.InsertDict(diclist).AsTable("table1").NoneParameter().ToSql();
+            Assert.Equal(@"INSERT ALL
+INTO ""TABLE1""(""ID"", ""NAME"") VALUES(1, 'xxxx')
+INTO ""TABLE1""(""ID"", ""NAME"") VALUES(2, 'yyyy')
+ SELECT 1 FROM DUAL", sql4);
+        }
+
+        [Fact]
         public void AppendData()
         {
             var items = new List<Topic>();
@@ -177,6 +208,11 @@ INTO ""TB_TOPIC_INSERT""(""CLICKS"") VALUES(900)
 
             Assert.Equal(1, insert.AppendData(items.First()).ExecuteAffrows());
             Assert.Equal(10, insert.AppendData(items).ExecuteAffrows());
+
+            Assert.Equal(10, g.dameng.Select<Topic>().Limit(10).InsertInto(null, a => new Topic
+            {
+                Title = a.Title
+            }));
         }
         [Fact]
         public void ExecuteIdentity()
@@ -194,6 +230,16 @@ INTO ""TB_TOPIC_INSERT""(""CLICKS"") VALUES(900)
 
             //var items2 = insert.AppendData(items).ExecuteInserted();
         }
+
+        //[Fact]
+        //public void ExecuteDmBulkCopy()
+        //{
+        //    var items = new List<Topic>();
+        //    for (var a = 0; a < 10; a++) items.Add(new Topic { Id = a + 1, Title = $"newtitle{a}", Clicks = a * 100, CreateTime = DateTime.Now });
+
+        //    insert.AppendData(items).InsertIdentity().ExecuteDmBulkCopy();
+        //    //Dm.DmException:¡°The fastloading dll not loading!¡±
+        //}
 
         [Fact]
         public void AsTable()

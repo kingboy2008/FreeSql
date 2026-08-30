@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 namespace restful.Controllers
 {
 
-    public class SongRepository : GuidRepository<Song>
+    public class SongRepository : BaseRepository<Song>
     {
         public SongRepository(IFreeSql fsql) : base(fsql)
         {
@@ -43,11 +43,11 @@ namespace restful.Controllers
             Console.Write(reposTest.Select.ToSql());
 
             _songRepository = repos4;
+
             //test code
             var curd1 = fsql.GetRepository<Song, int>();
             var curd2 = fsql.GetRepository<Song, string>();
             var curd3 = fsql.GetRepository<Song, Guid>();
-            var curd4 = fsql.GetGuidRepository<Song>();
 
             Console.WriteLine(reposSong.Select.ToSql());
 
@@ -61,6 +61,17 @@ namespace restful.Controllers
         public Task<List<Song>> GetItems([FromQuery] string key, [FromQuery] int page = 1, [FromQuery] int limit = 20)
         {
             return _songRepository.Select.WhereIf(!string.IsNullOrEmpty(key), a => a.Title.Contains(key)).Page(page, limit).ToListAsync();
+        }
+
+        /// <summary>
+        /// curl -X GET "http://localhost:5000/restapi/Songs/GetPagingItems?key=FreeSql&PageNumber=2&PageSize=10" -H  "accept: text/plain"
+        /// </summary>
+        /// <param name="pagingInfo"></param>
+        /// <returns></returns>
+        [HttpGet("GetPagingItems")]
+        public Task<List<Song>> GetPagingItems([FromQuery] string key, [FromQuery] PagingInfo pagingInfo)
+        {
+            return _songRepository.Select.WhereIf(!string.IsNullOrEmpty(key), a => a.Title.Contains(key)).Page(pagingInfo).ToListAsync();
         }
 
         [HttpGet("{id}")]

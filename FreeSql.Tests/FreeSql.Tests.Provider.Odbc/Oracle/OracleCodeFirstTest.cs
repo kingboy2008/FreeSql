@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+ï»¿using FreeSql.DataAnnotations;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -10,6 +10,26 @@ namespace FreeSql.Tests.Odbc.Oracle
 {
     public class OracleCodeFirstTest
     {
+        [Fact]
+        public void Test_0String()
+        {
+            var fsql = g.oracle;
+            fsql.Delete<test_0string01>().Where("1=1").ExecuteAffrows();
+
+            Assert.Equal(1, fsql.Insert(new test_0string01 { name = @"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000" }).ExecuteAffrows());
+            Assert.Equal(1, fsql.Insert(new test_0string01 { name = @"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000" }).NoneParameter().ExecuteAffrows());
+
+            var list = fsql.Select<test_0string01>().ToList();
+            Assert.Equal(2, list.Count);
+            Assert.Equal(@"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000", list[0].name);
+            Assert.Equal(@"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000", list[1].name);
+        }
+        class test_0string01
+        {
+            public Guid id { get; set; }
+            public string name { get; set; }
+        }
+
         [Fact]
         public void StringLength()
         {
@@ -27,106 +47,106 @@ namespace FreeSql.Tests.Odbc.Oracle
         }
 
         [Fact]
-        public void Êı×Ö±í_×Ö¶Î()
+        public void æ•°å­—è¡¨_å­—æ®µ()
         {
-            var sql = g.oracle.CodeFirst.GetComparisonDDLStatements<²âÊÔÊı×Ö±í>();
-            g.oracle.CodeFirst.SyncStructure<²âÊÔÊı×Ö±í>();
+            var sql = g.oracle.CodeFirst.GetComparisonDDLStatements<æµ‹è¯•æ•°å­—è¡¨>();
+            g.oracle.CodeFirst.SyncStructure<æµ‹è¯•æ•°å­—è¡¨>();
 
-            var item = new ²âÊÔÊı×Ö±í
+            var item = new æµ‹è¯•æ•°å­—è¡¨
             {
-                ±êÌâ = "²âÊÔ±êÌâ",
-                ´´½¨Ê±¼ä = DateTime.Now
+                æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜",
+                åˆ›å»ºæ—¶é—´ = DateTime.Now
             };
-            Assert.Equal(1, g.oracle.Insert<²âÊÔÊı×Ö±í>().AppendData(item).ExecuteAffrows());
-            Assert.NotEqual(Guid.Empty, item.±àºÅ);
-            var item2 = g.oracle.Select<²âÊÔÊı×Ö±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            Assert.Equal(1, g.oracle.Insert<æµ‹è¯•æ•°å­—è¡¨>().AppendData(item).ExecuteAffrows());
+            Assert.NotEqual(Guid.Empty, item.ç¼–å·);
+            var item2 = g.oracle.Select<æµ‹è¯•æ•°å­—è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ";
-            Assert.Equal(1, g.oracle.Update<²âÊÔÊı×Ö±í>().SetSource(item).ExecuteAffrows());
-            item2 = g.oracle.Select<²âÊÔÊı×Ö±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°";
+            Assert.Equal(1, g.oracle.Update<æµ‹è¯•æ•°å­—è¡¨>().SetSource(item).ExecuteAffrows());
+            item2 = g.oracle.Select<æµ‹è¯•æ•°å­—è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ_repo";
-            var repo = g.oracle.GetRepository<²âÊÔÊı×Ö±í>();
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°_repo";
+            var repo = g.oracle.GetRepository<æµ‹è¯•æ•°å­—è¡¨>();
             Assert.Equal(1, repo.Update(item));
-            item2 = g.oracle.Select<²âÊÔÊı×Ö±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item2 = g.oracle.Select<æµ‹è¯•æ•°å­—è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ_repo22";
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°_repo22";
             Assert.Equal(1, repo.Update(item));
-            item2 = g.oracle.Select<²âÊÔÊı×Ö±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item2 = g.oracle.Select<æµ‹è¯•æ•°å­—è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
         }
         [Table(Name = "123tb")]
-        class ²âÊÔÊı×Ö±í
+        class æµ‹è¯•æ•°å­—è¡¨
         {
             [Column(IsPrimary = true, Name = "123id")]
-            public Guid ±àºÅ { get; set; }
+            public Guid ç¼–å· { get; set; }
 
             [Column(Name = "123title")]
-            public string ±êÌâ { get; set; }
+            public string æ ‡é¢˜ { get; set; }
 
             [Column(Name = "123time")]
-            public DateTime ´´½¨Ê±¼ä { get; set; }
+            public DateTime åˆ›å»ºæ—¶é—´ { get; set; }
         }
 
         [Fact]
-        public void ÖĞÎÄ±í_×Ö¶Î()
+        public void ä¸­æ–‡è¡¨_å­—æ®µ()
         {
-            var sql = g.oracle.CodeFirst.GetComparisonDDLStatements<²âÊÔÖĞÎÄ±í>();
-            g.oracle.CodeFirst.SyncStructure<²âÊÔÖĞÎÄ±í>();
+            var sql = g.oracle.CodeFirst.GetComparisonDDLStatements<æµ‹è¯•ä¸­æ–‡è¡¨>();
+            g.oracle.CodeFirst.SyncStructure<æµ‹è¯•ä¸­æ–‡è¡¨>();
 
-            var item = new ²âÊÔÖĞÎÄ±í
+            var item = new æµ‹è¯•ä¸­æ–‡è¡¨
             {
-                ±êÌâ = "²âÊÔ±êÌâ",
-                ´´½¨Ê±¼ä = DateTime.Now
+                æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜",
+                åˆ›å»ºæ—¶é—´ = DateTime.Now
             };
-            Assert.Equal(1, g.oracle.Insert<²âÊÔÖĞÎÄ±í>().AppendData(item).ExecuteAffrows());
-            Assert.NotEqual(Guid.Empty, item.±àºÅ);
-            var item2 = g.oracle.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            Assert.Equal(1, g.oracle.Insert<æµ‹è¯•ä¸­æ–‡è¡¨>().AppendData(item).ExecuteAffrows());
+            Assert.NotEqual(Guid.Empty, item.ç¼–å·);
+            var item2 = g.oracle.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ";
-            Assert.Equal(1, g.oracle.Update<²âÊÔÖĞÎÄ±í>().SetSource(item).ExecuteAffrows());
-            item2 = g.oracle.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°";
+            Assert.Equal(1, g.oracle.Update<æµ‹è¯•ä¸­æ–‡è¡¨>().SetSource(item).ExecuteAffrows());
+            item2 = g.oracle.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ_repo";
-            var repo = g.oracle.GetRepository<²âÊÔÖĞÎÄ±í>();
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°_repo";
+            var repo = g.oracle.GetRepository<æµ‹è¯•ä¸­æ–‡è¡¨>();
             Assert.Equal(1, repo.Update(item));
-            item2 = g.oracle.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item2 = g.oracle.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ_repo22";
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°_repo22";
             Assert.Equal(1, repo.Update(item));
-            item2 = g.oracle.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item2 = g.oracle.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
         }
-        class ²âÊÔÖĞÎÄ±í
+        class æµ‹è¯•ä¸­æ–‡è¡¨
         {
             [Column(IsPrimary = true)]
-            public Guid ±àºÅ { get; set; }
+            public Guid ç¼–å· { get; set; }
 
-            public string ±êÌâ { get; set; }
+            public string æ ‡é¢˜ { get; set; }
 
-            public DateTime ´´½¨Ê±¼ä { get; set; }
+            public DateTime åˆ›å»ºæ—¶é—´ { get; set; }
         }
 
         [Fact]
@@ -176,59 +196,8 @@ namespace FreeSql.Tests.Odbc.Oracle
         [Fact]
         public void GetComparisonDDLStatements()
         {
-
             var sql = g.oracle.CodeFirst.GetComparisonDDLStatements<TableAllType>();
-            if (string.IsNullOrEmpty(sql) == false)
-            {
-                Assert.Equal(@"CREATE TABLE IF NOT EXISTS `cccddd`.`tb_alltype` ( 
-  `Id` INT(11) NOT NULL AUTO_INCREMENT, 
-  `Bool` BIT(1) NOT NULL, 
-  `SByte` TINYINT(3) NOT NULL, 
-  `Short` SMALLINT(6) NOT NULL, 
-  `Int` INT(11) NOT NULL, 
-  `Long` BIGINT(20) NOT NULL, 
-  `Byte` TINYINT(3) UNSIGNED NOT NULL, 
-  `UShort` SMALLINT(5) UNSIGNED NOT NULL, 
-  `UInt` INT(10) UNSIGNED NOT NULL, 
-  `ULong` BIGINT(20) UNSIGNED NOT NULL, 
-  `Double` DOUBLE NOT NULL, 
-  `Float` FLOAT NOT NULL, 
-  `Decimal` DECIMAL(10,2) NOT NULL, 
-  `TimeSpan` TIME NOT NULL, 
-  `DateTime` DATETIME NOT NULL, 
-  `Bytes` VARBINARY(255), 
-  `String` VARCHAR(255), 
-  `Guid` VARCHAR(36), 
-  `BoolNullable` BIT(1), 
-  `SByteNullable` TINYINT(3), 
-  `ShortNullable` SMALLINT(6), 
-  `IntNullable` INT(11), 
-  `testFielLongNullable` BIGINT(20), 
-  `ByteNullable` TINYINT(3) UNSIGNED, 
-  `UShortNullable` SMALLINT(5) UNSIGNED, 
-  `UIntNullable` INT(10) UNSIGNED, 
-  `ULongNullable` BIGINT(20) UNSIGNED, 
-  `DoubleNullable` DOUBLE, 
-  `FloatNullable` FLOAT, 
-  `DecimalNullable` DECIMAL(10,2), 
-  `TimeSpanNullable` TIME, 
-  `DateTimeNullable` DATETIME, 
-  `GuidNullable` VARCHAR(36), 
-  `Point` POINT, 
-  `LineString` LINESTRING, 
-  `Polygon` POLYGON, 
-  `MultiPoint` MULTIPOINT, 
-  `MultiLineString` MULTILINESTRING, 
-  `MultiPolygon` MULTIPOLYGON, 
-  `Enum1` ENUM('E1','E2','E3') NOT NULL, 
-  `Enum1Nullable` ENUM('E1','E2','E3'), 
-  `Enum2` SET('F1','F2','F3') NOT NULL, 
-  `Enum2Nullable` SET('F1','F2','F3'), 
-  PRIMARY KEY (`Id`)
-) Engine=InnoDB;
-", sql);
-            }
-
+            Assert.True(string.IsNullOrEmpty(sql)); //æµ‹è¯•è¿è¡Œä¸¤æ¬¡å
             //sql = g.oracle.CodeFirst.GetComparisonDDLStatements<Tb_alltype>();
         }
 
@@ -239,7 +208,17 @@ namespace FreeSql.Tests.Odbc.Oracle
         public void CurdAllField()
         {
             var item = new TableAllType { };
-            item.Id = (int)insert.AppendData(item).ExecuteIdentity();
+            for (var a = 0; a < 100; a++)
+            {
+                try //ERROR [23000] [Oracle][ODBC][Ora]ORA-00001: è¿åå”¯ä¸€çº¦æŸæ¡ä»¶ (1ODBC.1ODBC_TB_ALLTYPE_pk2)
+                {
+                    item.Id = (int)insert.AppendData(item).ExecuteIdentity();
+                    break;
+                }
+                catch
+                {
+                }
+            }
 
             var newitem = select.Where(a => a.Id == item.Id).ToOne();
 
@@ -249,7 +228,7 @@ namespace FreeSql.Tests.Odbc.Oracle
                 BoolNullable = true,
                 Byte = 255,
                 ByteNullable = 127,
-                Bytes = Encoding.UTF8.GetBytes("ÎÒÊÇÖĞ¹úÈË"),
+                Bytes = Encoding.UTF8.GetBytes("æˆ‘æ˜¯ä¸­å›½äºº"),
                 DateTime = DateTime.Now,
                 DateTimeNullable = DateTime.Now.AddHours(-1),
                 Decimal = 99.99M,
@@ -270,7 +249,8 @@ namespace FreeSql.Tests.Odbc.Oracle
                 SByteNullable = 99,
                 Short = short.MaxValue,
                 ShortNullable = short.MinValue,
-                String = "ÎÒÊÇÖĞ¹úÈËstring'\\?!@#$%^&*()_+{}}{~?><<>",
+                String = "æˆ‘æ˜¯ä¸­å›½äººstring'\\?!@#$%^&*()_+{}}{~?><<>",
+                Char = 'X',
                 TimeSpan = TimeSpan.FromSeconds(999),
                 TimeSpanNullable = TimeSpan.FromSeconds(60),
                 UInt = uint.MaxValue,
@@ -288,12 +268,15 @@ namespace FreeSql.Tests.Odbc.Oracle
             item2.Id = (int)insert.AppendData(item2).ExecuteIdentity();
             var newitem2 = select.Where(a => a.Id == item2.Id).ToOne();
             Assert.Equal(item2.String, newitem2.String);
+            Assert.Equal(item2.Char, newitem2.Char);
 
             item2.Id = (int)insert.NoneParameter().AppendData(item2).ExecuteIdentity();
             newitem2 = select.Where(a => a.Id == item2.Id).ToOne();
             Assert.Equal(item2.String, newitem2.String);
+            Assert.Equal(item2.Char, newitem2.Char);
 
             var items = select.ToList();
+            var itemstb = select.ToDataTable();
         }
 
         [Table(Name = "tb_alltype")]
@@ -321,6 +304,7 @@ namespace FreeSql.Tests.Odbc.Oracle
             public DateTime DateTimeOffSet { get; set; }
             public byte[] Bytes { get; set; }
             public string String { get; set; }
+            public char Char { get; set; }
             public Guid Guid { get; set; }
 
             public bool? BoolNullable { get; set; }

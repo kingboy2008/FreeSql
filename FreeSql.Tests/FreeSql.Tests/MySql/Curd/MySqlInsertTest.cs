@@ -31,6 +31,31 @@ namespace FreeSql.Tests.MySql
         enum TestEnumInserTbType { str1, biggit, sum211 }
 
         [Fact]
+        public void InsertDictionary()
+        {
+            var fsql = g.mysql;
+            Dictionary<string, object> dic = new Dictionary<string, object>();
+            dic.Add("id", 1);
+            dic.Add("name", "xxxx");
+            var diclist = new List<Dictionary<string, object>>();
+            diclist.Add(dic);
+            diclist.Add(new Dictionary<string, object>
+            {
+                ["id"] = 2,
+                ["name"] = "yyyy"
+            });
+
+            var sql1 = fsql.InsertDict(dic).AsTable("table1").ToSql();
+            Assert.Equal(@"INSERT INTO `table1`(`id`, `name`) VALUES(?id_0, ?name_0)", sql1);
+            var sql2 = fsql.InsertDict(diclist).AsTable("table1").ToSql();
+            Assert.Equal(@"INSERT INTO `table1`(`id`, `name`) VALUES(?id_0, ?name_0), (?id_1, ?name_1)", sql2);
+            var sql3 = fsql.InsertDict(dic).AsTable("table1").NoneParameter().ToSql();
+            Assert.Equal(@"INSERT INTO `table1`(`id`, `name`) VALUES(1, 'xxxx')", sql3);
+            var sql4 = fsql.InsertDict(diclist).AsTable("table1").NoneParameter().ToSql();
+            Assert.Equal(@"INSERT INTO `table1`(`id`, `name`) VALUES(1, 'xxxx'), (2, 'yyyy')", sql4);
+        }
+
+        [Fact]
         public void AppendData()
         {
             var items = new List<Topic>();
@@ -106,6 +131,11 @@ namespace FreeSql.Tests.MySql
 
             Assert.Equal(1, g.mysql.Insert<TestEnumInsertTb>().AppendData(new TestEnumInsertTb { type = TestEnumInserTbType.sum211 }).ExecuteAffrows());
             Assert.Equal(1, g.mysql.Insert<TestEnumInsertTb>().AppendData(new TestEnumInsertTb { type = TestEnumInserTbType.sum211 }).NoneParameter().ExecuteAffrows());
+
+            Assert.Equal(10, g.mysql.Select<Topic>().Limit(10).InsertInto(null, a => new Topic
+            {
+                Title = a.Title
+            }));
         }
         [Fact]
         public void ExecuteIdentity()

@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace FreeSql.SqlServer
 {
@@ -25,7 +24,7 @@ namespace FreeSql.SqlServer
         public int GetDbType(DbColumnInfo column) => (int)GetSqlDbType(column);
         SqlDbType GetSqlDbType(DbColumnInfo column)
         {
-            switch (column.DbTypeText.ToLower())
+            switch (column.DbTypeText?.ToLower())
             {
                 case "bit": return SqlDbType.Bit;
                 case "tinyint": return SqlDbType.TinyInt;
@@ -39,8 +38,8 @@ namespace FreeSql.SqlServer
                 case "float": return SqlDbType.Float;
                 case "real": return SqlDbType.Real;
                 case "date": return SqlDbType.Date;
-                case "datetime":
-                case "datetime2": return SqlDbType.DateTime;
+                case "datetime": return SqlDbType.DateTime;
+                case "datetime2": return SqlDbType.DateTime2;
                 case "datetimeoffset": return SqlDbType.DateTimeOffset;
                 case "smalldatetime": return SqlDbType.SmallDateTime;
                 case "time": return SqlDbType.Time;
@@ -110,14 +109,50 @@ namespace FreeSql.SqlServer
             return ds.Select(a => a.FirstOrDefault()?.ToString()).ToList();
         }
 
-        public List<DbTableInfo> GetTablesByDatabase(params string[] database)
+        public bool ExistsTable(string name, bool ignoreCase)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            var olddatabase = "";
+            using (var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5)))
+            {
+                olddatabase = conn.Value.Database;
+            }
+            var tbname = _commonUtils.SplitTableName(name);
+            if (tbname?.Length == 1) tbname = new[] { olddatabase, "dbo", tbname[0] };
+            if (tbname?.Length == 2) tbname = new[] { olddatabase, tbname[0], tbname[1] };
+            tbname = tbname.Select(a => a.ToLower()).ToArray();
+            var sql = $@"
+use [{tbname[0]}];
+select 
+1
+from sys.tables a
+inner join sys.schemas b on b.schema_id = a.schema_id
+where lower(b.name)={_commonUtils.FormatSql("{0}", tbname[1])} and lower(a.name)={_commonUtils.FormatSql("{0}", tbname[2])}
+;
+use [{olddatabase}];
+";
+            return string.Concat(_orm.Ado.ExecuteScalar(CommandType.Text, sql)) == "1";
+        }
+        public DbTableInfo GetTableByName(string name, bool ignoreCase = true) => GetTables(null, name, ignoreCase)?.FirstOrDefault();
+        public List<DbTableInfo> GetTablesByDatabase(params string[] database) => GetTables(database, null, false);
+
+        public List<DbTableInfo> GetTables(string[] database, string tablename, bool ignoreCase)
         {
             var olddatabase = "";
             using (var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5)))
             {
                 olddatabase = conn.Value.Database;
             }
-            var dbs = database == null || database.Any() == false ? new[] { olddatabase } : database;
+            string[] tbname = null;
+            string[] dbs = database == null || database.Any() == false ? new[] { olddatabase } : database;
+            if (string.IsNullOrEmpty(tablename) == false)
+            {
+                tbname = _commonUtils.SplitTableName(tablename);
+                if (tbname?.Length == 1) tbname = new[] { olddatabase, "dbo", tbname[0] };
+                if (tbname?.Length == 2) tbname = new[] { olddatabase, tbname[0], tbname[1] };
+                if (ignoreCase) tbname = tbname.Select(a => a.ToLower()).ToArray();
+                dbs = new[] { tbname[0] };
+            }
             var tables = new List<DbTableInfo>();
 
             foreach (var db in dbs)
@@ -130,36 +165,37 @@ namespace FreeSql.SqlServer
 
                 var sql = $@"
 use [{db}];
+select * from (
 select 
- a.Object_id
-,b.name 'Owner'
-,a.name 'Name'
-,(select value from sys.extended_properties where major_id = a.object_id AND minor_id = 0 AND name = 'MS_Description') 'Comment'
+ a.object_id
+,b.name 'owner'
+,a.name 'name'
+,(select value from sys.extended_properties where major_id = a.object_id AND minor_id = 0 AND name = 'MS_Description') 'comment'
 ,'TABLE' type
 from sys.tables a
 inner join sys.schemas b on b.schema_id = a.schema_id
 where not(b.name = 'dbo' and a.name = 'sysdiagrams')
 union all
 select
- a.Object_id
-,b.name 'Owner'
-,a.name 'Name'
-,(select value from sys.extended_properties where major_id = a.object_id AND minor_id = 0 AND name = 'MS_Description') 'Comment'
+ a.object_id
+,b.name 'owner'
+,a.name 'name'
+,(select value from sys.extended_properties where major_id = a.object_id AND minor_id = 0 AND name = 'MS_Description') 'comment'
 ,'VIEW' type
 from sys.views a
 inner join sys.schemas b on b.schema_id = a.schema_id
 union all
 select 
- a.Object_id
-,b.name 'Owner'
-,a.name 'Name'
-,(select value from sys.extended_properties where major_id = a.object_id AND minor_id = 0 AND name = 'MS_Description') 'Comment'
+ a.object_id
+,b.name 'owner'
+,a.name 'name'
+,(select value from sys.extended_properties where major_id = a.object_id AND minor_id = 0 AND name = 'MS_Description') 'comment'
 ,'StoreProcedure' type
 from sys.procedures a
 inner join sys.schemas b on b.schema_id = a.schema_id
 where a.type = 'P' and charindex('diagram', a.name) = 0
-order by type desc, b.name, a.name
-;
+) ft_dbf{(tbname == null ? "" : _commonUtils.FormatSql(" where lower([owner])={0} and lower([name])={1}", new[] { tbname[1], tbname[2] }))}
+order by type desc, [owner], [name];
 use [{olddatabase}];
 ";
                 var ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
@@ -228,21 +264,21 @@ use [{olddatabase}];
 
 select 
 isnull(e.name,'') + '.' + isnull(d.name,'')
-,a.Object_id
-,a.name 'Column'
-,b.name 'Type'
+,a.object_id
+,a.name 'column'
+,b.name 'type'
 ,case
- when b.name in ('Text', 'NText', 'Image') then -1
- when b.name in ('NChar', 'NVarchar') then a.max_length / 2
- else a.max_length end 'Length'
+ when b.name in ('text', 'ntext', 'image') then -1
+ when b.name in ('nchar', 'nvarchar') then a.max_length / 2
+ else a.max_length end 'length'
 ,b.name + case 
- when b.name in ('Char', 'VarChar', 'NChar', 'NVarChar', 'Binary', 'VarBinary') then '(' + 
+ when b.name in ('char', 'varchar', 'nchar', 'nvarchar', 'binary', 'varbinary') then '(' + 
   case when a.max_length = -1 then 'MAX' 
-  when b.name in ('NChar', 'NVarchar') then cast(a.max_length / 2 as varchar)
+  when b.name in ('nchar', 'nvarchar') then cast(a.max_length / 2 as varchar)
   else cast(a.max_length as varchar) end + ')'
- when b.name in ('Numeric', 'Decimal') then '(' + cast(a.precision as varchar) + ',' + cast(a.scale as varchar) + ')'
- else '' end as 'SqlType'
-,( select value from sys.extended_properties where major_id = a.object_id AND minor_id = a.column_id AND name = 'MS_Description') 'Comment'
+ when b.name in ('numeric', 'decimal') then '(' + cast(a.precision as varchar) + ',' + cast(a.scale as varchar) + ')'
+ else '' end as 'sqltype'
+,( select value from sys.extended_properties where major_id = a.object_id AND minor_id = a.column_id AND name = 'MS_Description' and class=1) 'comment'
 {0} a
 inner join sys.types b on b.user_type_id = a.user_type_id
 left join sys.tables d on d.object_id = a.object_id
@@ -250,9 +286,12 @@ left join sys.schemas e on e.schema_id = d.schema_id{2}
 where {1}
 ";
                 sql = string.Format(tsql_place, @"
-,a.is_nullable 'IsNullable'
-,a.is_identity 'IsIdentity'
-,f.text as 'DefaultValue'
+,a.is_nullable 'isnullable'
+,a.is_identity 'isidentity'
+,f.text as 'defaultvalue'
+,a.column_id as 'position'
+,a.precision
+,a.scale
 from sys.columns", loc8.ToString().Replace("a.table_name", "a.object_id"), @"
 left join syscomments f on f.id = a.default_object_id
 ");
@@ -262,16 +301,18 @@ left join syscomments f on f.id = a.default_object_id
                     string.Format(tsql_place.Replace(
                         " select value from sys.extended_properties where major_id = a.object_id AND minor_id = a.column_id",
                         " select value from sys.extended_properties where major_id = a.object_id AND minor_id = a.parameter_id"), @"
-,cast(0 as bit) 'IsNullable'
-,a.is_output 'IsIdentity'
-,'' as 'DefaultValue'
+,cast(0 as bit) 'isnullable'
+,a.is_output 'isidentity'
+,'' as 'defaultvalue'
+,1 as 'position'
+,a.precision
+,a.scale
 from sys.parameters", loc88.ToString().Replace("a.table_name", "a.object_id"), "");
                 }
                 sql = $"use [{db}];{sql};use [{olddatabase}]; ";
                 ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
                 if (ds == null) return loc1;
 
-                var position = 0;
                 foreach (object[] row in ds)
                 {
                     var table_id = string.Concat(row[0]);
@@ -284,7 +325,10 @@ from sys.parameters", loc88.ToString().Replace("a.table_name", "a.object_id"), "
                     var is_nullable = bool.Parse(string.Concat(row[7]));
                     var is_identity = bool.Parse(string.Concat(row[8]));
                     var defaultValue = string.Concat(row[9]);
+                    var position = int.Parse(string.Concat(row[10]));
                     if (max_length == 0) max_length = -1;
+                    int.TryParse(string.Concat(row[11]), out var numeric_precision);
+                    int.TryParse(string.Concat(row[12]), out var numeric_scale);
 
                     loc3[object_id].Add(column, new DbColumnInfo
                     {
@@ -296,9 +340,11 @@ from sys.parameters", loc88.ToString().Replace("a.table_name", "a.object_id"), "
                         DbTypeText = type,
                         DbTypeTextFull = sqlType,
                         Table = loc2[object_id],
-                        Coment = comment,
+                        Comment = comment,
                         DefaultValue = defaultValue,
-                        Position = ++position
+                        Position = position,
+                        Precision = numeric_precision,
+                        Scale = numeric_scale,
                     });
                     loc3[object_id][column].DbType = this.GetDbType(loc3[object_id][column]);
                     loc3[object_id][column].CsType = this.GetCsTypeInfo(loc3[object_id][column]);
@@ -307,13 +353,13 @@ from sys.parameters", loc88.ToString().Replace("a.table_name", "a.object_id"), "
                 sql = $@"
 use [{db}];
 select 
- a.object_id 'Object_id'
-,c.name 'Column'
-,b.name 'Index_id'
-,b.is_unique 'IsUnique'
-,b.is_primary_key 'IsPrimaryKey'
-,cast(case when b.type_desc = 'CLUSTERED' then 1 else 0 end as bit) 'IsClustered'
-,case when a.is_descending_key = 1 then 1 else 0 end 'IsDesc'
+ a.object_id 'object_id'
+,c.name 'column'
+,b.name 'index_id'
+,b.is_unique 'isunique'
+,b.is_primary_key 'isprimarykey'
+,cast(case when b.type_desc = 'CLUSTERED' then 1 else 0 end as bit) 'isclustered'
+,case when a.is_descending_key = 1 then 1 else 0 end 'isdesc'
 from sys.index_columns a
 inner join sys.indexes b on b.object_id = a.object_id and b.index_id = a.index_id
 left join sys.columns c on c.object_id = a.object_id and c.column_id = a.column_id
@@ -345,14 +391,14 @@ use [{olddatabase}];
                     if (!indexColumns.TryGetValue(object_id, out loc10))
                         indexColumns.Add(object_id, loc10 = new Dictionary<string, DbIndexInfo>());
                     if (!loc10.TryGetValue(index_id, out loc11))
-                        loc10.Add(index_id, loc11 = new DbIndexInfo());
+                        loc10.Add(index_id, loc11 = new DbIndexInfo { Name = index_id });
                     loc11.Columns.Add(new DbIndexColumnInfo { Column = loc9, IsDesc = is_desc });
                     if (is_unique && !is_primary_key)
                     {
                         if (!uniqueColumns.TryGetValue(object_id, out loc10))
                             uniqueColumns.Add(object_id, loc10 = new Dictionary<string, DbIndexInfo>());
                         if (!loc10.TryGetValue(index_id, out loc11))
-                            loc10.Add(index_id, loc11 = new DbIndexInfo());
+                            loc10.Add(index_id, loc11 = new DbIndexInfo { Name = index_id });
                         loc11.Columns.Add(new DbIndexColumnInfo { Column = loc9, IsDesc = is_desc });
                     }
                 }
@@ -370,17 +416,19 @@ use [{olddatabase}];
                     }
                 }
 
-                sql = $@"
+                if (tbname == null)
+                {
+                    sql = $@"
 use [{db}];
 select 
- b.object_id 'Object_id'
-,c.name 'Column'
-,e.name 'FKId'
+ b.object_id 'object_id'
+,c.name 'column'
+,e.name 'fkid'
 ,a.referenced_object_id
-,cast(1 as bit) 'IsForeignKey'
-,d.name 'Referenced_Column'
-,null 'Referenced_Sln'
-,null 'Referenced_Table'
+,cast(1 as bit) 'isforeignkey'
+,d.name 'referenced_column'
+,null 'referenced_sln'
+,null 'referenced_table'
 from sys.foreign_key_columns a
 inner join sys.tables b on b.object_id = a.parent_object_id
 inner join sys.columns c on c.object_id = a.parent_object_id and c.column_id = a.parent_column_id
@@ -390,47 +438,48 @@ where {loc8.ToString().Replace("a.table_name", "b.object_id")}
 ;
 use [{olddatabase}];
 ";
-                ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
-                if (ds == null) return loc1;
+                    ds = _orm.Ado.ExecuteArray(CommandType.Text, sql);
+                    if (ds == null) return loc1;
 
-                var fkColumns = new Dictionary<int, Dictionary<string, DbForeignInfo>>();
-                foreach (object[] row in ds)
-                {
-                    int object_id, referenced_object_id;
-                    int.TryParse(string.Concat(row[0]), out object_id);
-                    var column = string.Concat(row[1]);
-                    string fk_id = string.Concat(row[2]);
-                    int.TryParse(string.Concat(row[3]), out referenced_object_id);
-                    var is_foreign_key = bool.Parse(string.Concat(row[4]));
-                    var referenced_column = string.Concat(row[5]);
-                    var referenced_db = string.Concat(row[6]);
-                    var referenced_table = string.Concat(row[7]);
-                    DbColumnInfo loc9 = loc3[object_id][column];
-                    DbTableInfo loc10 = null;
-                    DbColumnInfo loc11 = null;
-                    bool isThisSln = referenced_object_id != 0;
-
-                    if (isThisSln)
+                    var fkColumns = new Dictionary<int, Dictionary<string, DbForeignInfo>>();
+                    foreach (object[] row in ds)
                     {
-                        loc10 = loc2[referenced_object_id];
-                        loc11 = loc3[referenced_object_id][referenced_column];
-                    }
-                    else
-                    {
+                        int object_id, referenced_object_id;
+                        int.TryParse(string.Concat(row[0]), out object_id);
+                        var column = string.Concat(row[1]);
+                        string fk_id = string.Concat(row[2]);
+                        int.TryParse(string.Concat(row[3]), out referenced_object_id);
+                        var is_foreign_key = bool.Parse(string.Concat(row[4]));
+                        var referenced_column = string.Concat(row[5]);
+                        var referenced_db = string.Concat(row[6]);
+                        var referenced_table = string.Concat(row[7]);
+                        DbColumnInfo loc9 = loc3[object_id][column];
+                        DbTableInfo loc10 = null;
+                        DbColumnInfo loc11 = null;
+                        bool isThisSln = referenced_object_id != 0;
 
+                        if (isThisSln)
+                        {
+                            loc10 = loc2[referenced_object_id];
+                            loc11 = loc3[referenced_object_id][referenced_column];
+                        }
+                        else
+                        {
+
+                        }
+                        Dictionary<string, DbForeignInfo> loc12 = null;
+                        DbForeignInfo loc13 = null;
+                        if (!fkColumns.TryGetValue(object_id, out loc12))
+                            fkColumns.Add(object_id, loc12 = new Dictionary<string, DbForeignInfo>());
+                        if (!loc12.TryGetValue(fk_id, out loc13))
+                            loc12.Add(fk_id, loc13 = new DbForeignInfo { Table = loc2[object_id], ReferencedTable = loc10 });
+                        loc13.Columns.Add(loc9);
+                        loc13.ReferencedColumns.Add(loc11);
                     }
-                    Dictionary<string, DbForeignInfo> loc12 = null;
-                    DbForeignInfo loc13 = null;
-                    if (!fkColumns.TryGetValue(object_id, out loc12))
-                        fkColumns.Add(object_id, loc12 = new Dictionary<string, DbForeignInfo>());
-                    if (!loc12.TryGetValue(fk_id, out loc13))
-                        loc12.Add(fk_id, loc13 = new DbForeignInfo { Table = loc2[object_id], ReferencedTable = loc10 });
-                    loc13.Columns.Add(loc9);
-                    loc13.ReferencedColumns.Add(loc11);
+                    foreach (var table_id in fkColumns.Keys)
+                        foreach (var fk in fkColumns[table_id])
+                            loc2[table_id].ForeignsDict.Add(fk.Key, fk.Value);
                 }
-                foreach (var table_id in fkColumns.Keys)
-                    foreach (var fk in fkColumns[table_id])
-                        loc2[table_id].ForeignsDict.Add(fk.Key, fk.Value);
 
                 foreach (var table_id in loc3.Keys)
                 {

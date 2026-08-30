@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -51,15 +51,61 @@ namespace FreeSql.Tests.PostgreSQLExpression
         }
 
         [Fact]
+        public void StringJoin()
+        {
+            var fsql = g.pgsql;
+            fsql.Delete<StringJoin01>().Where("1=1").ExecuteAffrows();
+            fsql.Insert(new[] { new StringJoin01 { name = "北京" }, new StringJoin01 { name = "上海" }, new StringJoin01 { name = "深圳" }, }).ExecuteAffrows();
+
+            var val1 = string.Join(",", fsql.Select<StringJoin01>().ToList(a => a.name));
+            var val2 = fsql.Select<StringJoin01>().ToList(a => string.Join(",", fsql.Select<StringJoin01>().As("b").ToList(b => b.name)));
+            Assert.Equal(val1, val2[0]);
+
+            val1 = string.Join("**", fsql.Select<StringJoin01>().ToList(a => a.name));
+            val2 = fsql.Select<StringJoin01>().ToList(a => string.Join("**", fsql.Select<StringJoin01>().As("b").ToList(b => b.name)));
+            Assert.Equal(val1, val2[0]);
+
+            val1 = string.Join(",", fsql.Select<StringJoin01>().ToList(a => a.id));
+            val2 = fsql.Select<StringJoin01>().ToList(a => string.Join(",", fsql.Select<StringJoin01>().As("b").ToList(b => b.id)));
+            Assert.Equal(val1, val2[0]);
+
+            val1 = string.Join("**", fsql.Select<StringJoin01>().ToList(a => a.id));
+            val2 = fsql.Select<StringJoin01>().ToList(a => string.Join("**", fsql.Select<StringJoin01>().As("b").ToList(b => b.id)));
+            Assert.Equal(val1, val2[0]);
+
+            //fsql.GlobalFilter.Apply<StringJoin01>("test001", a => a.name.Length > 0);
+            //val2 = fsql.Select<StringJoin01>().ToList(a => string.Join("**", fsql.Select<StringJoin01>().As("b").ToList(b => b.id)));
+        }
+        class StringJoin01
+        {
+            [Column(IsIdentity = true)]
+            public int id { get; set; }
+            public string name { get; set; }
+        }
+
+        [Fact]
+        public void First()
+        {
+            Assert.Equal('x', select.First(a => "x1".First()));
+            Assert.Equal('z', select.First(a => "z1".First()));
+        }
+        [Fact]
+        public void FirstOrDefault()
+        {
+            Assert.Equal('x', select.First(a => "x1".FirstOrDefault()));
+            Assert.Equal('z', select.First(a => "z1".FirstOrDefault()));
+        }
+
+        [Fact]
         public void Format()
         {
-            var item = g.pgsql.GetRepository<Topic>().Insert(new Topic { Clicks = 101, Title = "�����й���101", CreateTime = DateTime.Parse("2020-7-5") });
+            var item = g.pgsql.GetRepository<Topic>().Insert(new Topic { Clicks = 101, Title = "我是中国人101", CreateTime = DateTime.Parse("2020-7-5") });
             var sql = select.WhereDynamic(item).ToSql(a => new
             {
                 str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}",
                 str2 = string.Format("{0}x{0}z-{1}{2}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title)
             });
-            Assert.Equal($@"SELECT 'x'||((a.""id"" + 1))||'z-'||(to_char((a.""createtime"")::timestamp,'YYYYMM'))||''||(a.""title"")||'' as1, ''||((a.""id"" + 1))||'x'||((a.""id"" + 1))||'z-'||(to_char((a.""createtime"")::timestamp,'YYYYMM'))||''||(a.""title"")||'' as2 
+            Assert.Equal($@"SELECT 'x'||coalesce(((a.""id"" + 1))::text, '')||'z-'||coalesce(to_char((a.""createtime"")::timestamp,'YYYYMM'), '')||''||coalesce(a.""title"", '')||'' as1, ''||coalesce(((a.""id"" + 1))::text, '')||'x'||coalesce(((a.""id"" + 1))::text, '')||'z-'||coalesce(to_char((a.""createtime"")::timestamp,'YYYYMM'), '')||''||coalesce(a.""title"", '')||'' as2 
 FROM ""tb_topic"" a 
 WHERE (a.""id"" = {item.Id})", sql);
 
@@ -71,6 +117,31 @@ WHERE (a.""id"" = {item.Id})", sql);
             Assert.NotNull(item2);
             Assert.Equal($"x{item.Id + 1}z-{item.CreateTime.ToString("yyyyMM")}{item.Title}", item2.str);
             Assert.Equal(string.Format("{0}x{0}z-{1}{2}", item.Id + 1, item.CreateTime.ToString("yyyyMM"), item.Title), item2.str2);
+        }
+
+        [Fact]
+        public void Format4()
+        {
+            //3个 {} 时，Arguments 解析出来是分开的
+            //4个 {} 时，Arguments[1] 只能解析这个出来，然后里面是 NewArray []
+            var item = g.pgsql.GetRepository<Topic>().Insert(new Topic { Clicks = 101, Title = "我是中国人101", CreateTime = DateTime.Parse("2020-7-5") });
+            var sql = select.WhereDynamic(item).ToSql(a => new
+            {
+                str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}{a.Title}",
+                str2 = string.Format("{0}x{0}z-{1}{2}{3}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title, a.Title)
+            });
+            Assert.Equal($@"SELECT 'x'||coalesce(((a.""id"" + 1))::text, '')||'z-'||coalesce(to_char((a.""createtime"")::timestamp,'YYYYMM'), '')||''||coalesce(a.""title"", '')||''||coalesce(a.""title"", '')||'' as1, ''||coalesce(((a.""id"" + 1))::text, '')||'x'||coalesce(((a.""id"" + 1))::text, '')||'z-'||coalesce(to_char((a.""createtime"")::timestamp,'YYYYMM'), '')||''||coalesce(a.""title"", '')||''||coalesce(a.""title"", '')||'' as2 
+FROM ""tb_topic"" a 
+WHERE (a.""id"" = {item.Id})", sql);
+
+            var item2 = select.WhereDynamic(item).First(a => new
+            {
+                str = $"x{a.Id + 1}z-{a.CreateTime.ToString("yyyyMM")}{a.Title}{a.Title}",
+                str2 = string.Format("{0}x{0}z-{1}{2}{3}", a.Id + 1, a.CreateTime.ToString("yyyyMM"), a.Title, a.Title)
+            });
+            Assert.NotNull(item2);
+            Assert.Equal($"x{item.Id + 1}z-{item.CreateTime.ToString("yyyyMM")}{item.Title}{item.Title}", item2.str);
+            Assert.Equal(string.Format("{0}x{0}z-{1}{2}{3}", item.Id + 1, item.CreateTime.ToString("yyyyMM"), item.Title, item.Title), item2.str2);
         }
 
         [Fact]
@@ -211,6 +282,17 @@ WHERE (a.""id"" = {item.Id})", sql);
             //SELECT a.`Id` as1, a.`Clicks` as2, a.`TypeGuid` as3, a__Type.`Guid` as4, a__Type.`ParentId` as5, a__Type.`Name` as6, a.`Title` as7, a.`CreateTime` as8
             //FROM `tb_topic` a, `TestTypeInfo` a__Type
             //WHERE((concat(a.`Title`, 'aaa')) LIKE concat('%', a__Type.`Name`, '%'))
+
+
+            list.Add(select.Where(a => a.Title.Contains("%")).ToList());
+            list.Add(select.Where(a => a.Title.Contains(a.Title + "%")).ToList());
+            list.Add(select.Where(a => a.Title.Contains(a.Title + 1 + "%")).ToList());
+            list.Add(select.Where(a => a.Title.Contains(a.Type.Name + "%")).ToList());
+
+            list.Add(select.Where(a => (a.Title + "aaa").Contains("aaa" + "%")).ToList());
+            list.Add(select.Where(a => (a.Title + "aaa").Contains(a.Title + "%")).ToList());
+            list.Add(select.Where(a => (a.Title + "aaa").Contains(a.Title + 1 + "%")).ToList());
+            list.Add(select.Where(a => (a.Title + "aaa").Contains(a.Type.Name + "%")).ToList());
         }
         [Fact]
         public void ToLower()

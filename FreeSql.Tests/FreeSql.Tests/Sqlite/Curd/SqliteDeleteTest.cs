@@ -1,7 +1,13 @@
+﻿using FreeSql;
 using FreeSql.DataAnnotations;
+using FreeSql.Internal.CommonProvider;
+using FreeSql.Internal.Model;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Text;
 using Xunit;
 
 namespace FreeSql.Tests.Sqlite
@@ -27,13 +33,13 @@ namespace FreeSql.Tests.Sqlite
         {
             Assert.Null(g.sqlite.Delete<Topic>().ToSql());
             var sql = g.sqlite.Delete<Topic>(new[] { 1, 2 }).ToSql();
-            Assert.Equal("DELETE FROM \"tb_topic22211\" WHERE (\"Id\" = 1 OR \"Id\" = 2)", sql);
+            Assert.Equal("DELETE FROM \"tb_topic22211\" WHERE (\"Id\" IN (1,2))", sql);
 
             sql = g.sqlite.Delete<Topic>(new Topic { Id = 1, Title = "test" }).ToSql();
             Assert.Equal("DELETE FROM \"tb_topic22211\" WHERE (\"Id\" = 1)", sql);
 
             sql = g.sqlite.Delete<Topic>(new[] { new Topic { Id = 1, Title = "test" }, new Topic { Id = 2, Title = "test" } }).ToSql();
-            Assert.Equal("DELETE FROM \"tb_topic22211\" WHERE (\"Id\" = 1 OR \"Id\" = 2)", sql);
+            Assert.Equal("DELETE FROM \"tb_topic22211\" WHERE (\"Id\" IN (1,2))", sql);
 
             sql = g.sqlite.Delete<Topic>(new { id = 1 }).ToSql();
             Assert.Equal("DELETE FROM \"tb_topic22211\" WHERE (\"Id\" = 1)", sql);
@@ -91,13 +97,13 @@ namespace FreeSql.Tests.Sqlite
         {
             Assert.Null(g.sqlite.Delete<Topic>().AsTable(a => "TopicAsTable").ToSql());
             var sql = g.sqlite.Delete<Topic>(new[] { 1, 2 }).AsTable(a => "TopicAsTable").ToSql();
-            Assert.Equal("DELETE FROM \"TopicAsTable\" WHERE (\"Id\" = 1 OR \"Id\" = 2)", sql);
+            Assert.Equal("DELETE FROM \"TopicAsTable\" WHERE (\"Id\" IN (1,2))", sql);
 
             sql = g.sqlite.Delete<Topic>(new Topic { Id = 1, Title = "test" }).AsTable(a => "TopicAsTable").ToSql();
             Assert.Equal("DELETE FROM \"TopicAsTable\" WHERE (\"Id\" = 1)", sql);
 
             sql = g.sqlite.Delete<Topic>(new[] { new Topic { Id = 1, Title = "test" }, new Topic { Id = 2, Title = "test" } }).AsTable(a => "TopicAsTable").ToSql();
-            Assert.Equal("DELETE FROM \"TopicAsTable\" WHERE (\"Id\" = 1 OR \"Id\" = 2)", sql);
+            Assert.Equal("DELETE FROM \"TopicAsTable\" WHERE (\"Id\" IN (1,2))", sql);
 
             sql = g.sqlite.Delete<Topic>(new { id = 1 }).AsTable(a => "TopicAsTable").ToSql();
             Assert.Equal("DELETE FROM \"TopicAsTable\" WHERE (\"Id\" = 1)", sql);

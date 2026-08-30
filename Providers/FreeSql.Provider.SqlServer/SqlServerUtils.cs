@@ -1,10 +1,15 @@
 ﻿using FreeSql.Internal;
+using FreeSql.Internal.CommonProvider;
 using FreeSql.Internal.Model;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+#if microsoft
+using Microsoft.Data.SqlClient;
+#else
 using System.Data.SqlClient;
+#endif
 using System.Globalization;
 using System.Text;
 
@@ -25,6 +30,10 @@ namespace FreeSql.SqlServer
         {
             if (string.IsNullOrEmpty(parameterName)) parameterName = $"p_{_params?.Count}";
             if (value?.Equals(DateTime.MinValue) == true) value = new DateTime(1970, 1, 1);
+            else if (value?.Equals(DateTimeOffset.MinValue) == true) value = new DateTime(1970, 1, 1);
+#if net60
+            else if (value?.Equals(DateOnly.MinValue) == true) value = new DateTime(1970, 1, 1);
+#endif
             var ret = new SqlParameter { ParameterName = QuoteParamterName(parameterName), Value = value };
             var tp = _orm.CodeFirst.GetDbInfo(type)?.type;
             if (tp != null) ret.SqlDbType = (SqlDbType)tp.Value;
@@ -34,7 +43,7 @@ namespace FreeSql.SqlServer
                 if (dbtype != SqlDbType.Variant)
                 {
                     ret.SqlDbType = dbtype;
-                    if (col.DbSize != 0) ret.Size = col.DbSize;
+                    //if (col.DbSize != 0) ret.Size = col.DbSize;
                     if (col.DbPrecision != 0) ret.Precision = col.DbPrecision;
                     if (col.DbScale != 0) ret.Scale = col.DbScale;
                 }
@@ -44,9 +53,13 @@ namespace FreeSql.SqlServer
         }
 
         public override DbParameter[] GetDbParamtersByObject(string sql, object obj) =>
-            Utils.GetDbParamtersByObject<SqlParameter>(sql, obj, "@", (name, type, value) =>
+            Utils.GetDbParamtersByObject<DbParameter>(sql, obj, "@", (name, type, value) =>
             {
                 if (value?.Equals(DateTime.MinValue) == true) value = new DateTime(1970, 1, 1);
+                else if (value?.Equals(DateTimeOffset.MinValue) == true) value = new DateTime(1970, 1, 1);
+#if net60
+                else if (value?.Equals(DateOnly.MinValue) == true) value = new DateTime(1970, 1, 1);
+#endif
                 var ret = new SqlParameter { ParameterName = $"@{name}", Value = value };
                 var tp = _orm.CodeFirst.GetDbInfo(type)?.type;
                 if (tp != null) ret.SqlDbType = (SqlDbType)tp.Value;
@@ -54,7 +67,7 @@ namespace FreeSql.SqlServer
             });
 
         public override string FormatSql(string sql, params object[] args) => sql?.FormatSqlServer(args);
-        public override string QuoteSqlName(params string[] name)
+        public override string QuoteSqlNameAdapter(params string[] name)
         {
             if (name.Length == 1)
             {
@@ -95,20 +108,15 @@ namespace FreeSql.SqlServer
         public override string Now => "getdate()";
         public override string NowUtc => "getutcdate()";
 
-        public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
-        public override string QuoteReadColumn(Type type, Type mapType, string columnName) => columnName;
+        public override string QuoteWriteParamterAdapter(Type type, string paramterName) => paramterName;
+        protected override string QuoteReadColumnAdapter(Type type, Type mapType, string columnName) => columnName;
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);
             if (type == typeof(byte[])) return $"0x{CommonUtils.BytesSqlRaw(value as byte[])}";
-            if (type == typeof(TimeSpan) || type == typeof(TimeSpan?))
-            {
-                var ts = (TimeSpan)value;
-                value = $"{ts.Hours}:{ts.Minutes}:{ts.Seconds}.{ts.Milliseconds}";
-            }
-            return FormatSql("{0}", value, 1);
+            return string.Format(CultureInfo.InvariantCulture, "{0}", (_orm.Ado as AdoProvider).AddslashesProcessParam(value, type, col));
         }
     }
 }

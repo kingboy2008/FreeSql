@@ -4,7 +4,11 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+#if MicrosoftData
+using Microsoft.Data.Sqlite;
+#else
 using System.Data.SQLite;
+#endif
 using System.Globalization;
 
 namespace FreeSql.Sqlite
@@ -19,7 +23,7 @@ namespace FreeSql.Sqlite
         public override DbParameter AppendParamter(List<DbParameter> _params, string parameterName, ColumnInfo col, Type type, object value)
         {
             if (string.IsNullOrEmpty(parameterName)) parameterName = $"p_{_params?.Count}";
-            var dbtype = (DbType)_orm.CodeFirst.GetDbInfo(type)?.type;
+            var dbtype = (DbType?)_orm.CodeFirst.GetDbInfo(type)?.type;
             switch (dbtype)
             {
                 case DbType.Guid:
@@ -29,13 +33,17 @@ namespace FreeSql.Sqlite
                     break;
                 case DbType.Time:
                     if (value == null) value = null;
-                    else value = ((TimeSpan)value).Ticks / 10000;
-                    dbtype = DbType.Int64;
+                    else value = ((TimeSpan)value).TotalSeconds;
+                    dbtype = DbType.Decimal;
                     break;
             }
+#if MicrosoftData
+            var ret = new SqliteParameter();
+#else
             var ret = new SQLiteParameter();
+#endif
             ret.ParameterName = QuoteParamterName(parameterName);
-            ret.DbType = dbtype;
+            if (dbtype != null) ret.DbType = dbtype.Value;
             ret.Value = value;
             _params?.Add(ret);
             return ret;
@@ -44,29 +52,37 @@ namespace FreeSql.Sqlite
         public override DbParameter[] GetDbParamtersByObject(string sql, object obj) =>
             Utils.GetDbParamtersByObject<DbParameter>(sql, obj, "@", (name, type, value) =>
             {
-                var dbtype = (DbType)_orm.CodeFirst.GetDbInfo(type)?.type;
-                switch (dbtype)
+                var typeint = _orm.CodeFirst.GetDbInfo(type)?.type;
+                var dbtype = typeint != null ? (DbType?)typeint : null;
+                if (dbtype != null)
                 {
-                    case DbType.Guid:
-                        if (value == null) value = null;
-                        else value = ((Guid)value).ToString();
-                        dbtype = DbType.String;
-                        break;
-                    case DbType.Time:
-                        if (value == null) value = null;
-                        else value = ((TimeSpan)value).Ticks / 10000;
-                        dbtype = DbType.Int64;
-                        break;
+                    switch (dbtype.Value)
+                    {
+                        case DbType.Guid:
+                            if (value == null) value = null;
+                            else value = ((Guid)value).ToString();
+                            dbtype = DbType.String;
+                            break;
+                        case DbType.Time:
+                            if (value == null) value = null;
+                            else value = ((TimeSpan)value).TotalSeconds;
+                            dbtype = DbType.Decimal;
+                            break;
+                    }
                 }
+#if MicrosoftData
+                var ret = new SqliteParameter();
+#else
                 var ret = new SQLiteParameter();
+#endif
                 ret.ParameterName = $"@{name}";
-                ret.DbType = dbtype;
+                if (dbtype != null) ret.DbType = dbtype.Value;
                 ret.Value = value;
                 return ret;
             });
 
         public override string FormatSql(string sql, params object[] args) => sql?.FormatSqlite(args);
-        public override string QuoteSqlName(params string[] name)
+        public override string QuoteSqlNameAdapter(params string[] name)
         {
             if (name.Length == 1)
             {
@@ -95,13 +111,18 @@ namespace FreeSql.Sqlite
         public override string Now => "datetime(current_timestamp,'localtime')";
         public override string NowUtc => "current_timestamp";
 
-        public override string QuoteWriteParamter(Type type, string paramterName) => paramterName;
-        public override string QuoteReadColumn(Type type, Type mapType, string columnName) => columnName;
+        public override string QuoteWriteParamterAdapter(Type type, string paramterName) => paramterName;
+        protected override string QuoteReadColumnAdapter(Type type, Type mapType, string columnName) => columnName;
 
-        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, Type type, object value)
+        public override string GetNoneParamaterSqlValue(List<DbParameter> specialParams, string specialParamFlag, ColumnInfo col, Type type, object value)
         {
             if (value == null) return "NULL";
             if (type.IsNumberType()) return string.Format(CultureInfo.InvariantCulture, "{0}", value);
+            if (type == typeof(byte[]))
+            {
+                var pam = AppendParamter(specialParams, $"p_{specialParams?.Count}{specialParamFlag}", null, type, value);
+                return pam.ParameterName;
+            }
             return FormatSql("{0}", value, 1);
         }
     }

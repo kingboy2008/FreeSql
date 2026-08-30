@@ -1,8 +1,10 @@
 ﻿using FreeSql.Internal;
 using FreeSql.Internal.Model;
+using FreeSql.Internal.ObjectPool;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 using System.Linq;
 using System.Text;
 
@@ -35,9 +37,14 @@ namespace FreeSql.SqlServer
                 { typeof(TimeSpan).FullName, CsToDb.New(SqlDbType.Time, "time","time NOT NULL", false, false, 0) },{ typeof(TimeSpan?).FullName, CsToDb.New(SqlDbType.Time, "time", "time",false, true, null) },
                 { typeof(DateTime).FullName, CsToDb.New(SqlDbType.DateTime, "datetime", "datetime NOT NULL", false, false, new DateTime(1970,1,1)) },{ typeof(DateTime?).FullName, CsToDb.New(SqlDbType.DateTime, "datetime", "datetime", false, true, null) },
                 { typeof(DateTimeOffset).FullName, CsToDb.New(SqlDbType.DateTimeOffset, "datetimeoffset", "datetimeoffset NOT NULL", false, false, new DateTimeOffset(new DateTime(1970,1,1), TimeSpan.Zero)) },{ typeof(DateTimeOffset?).FullName, CsToDb.New(SqlDbType.DateTimeOffset, "datetimeoffset", "datetimeoffset", false, true, null) },
+#if net60
+                { typeof(TimeOnly).FullName, CsToDb.New(SqlDbType.Time, "time", "time NOT NULL", false, false, TimeOnly.MinValue) },{ typeof(TimeOnly?).FullName, CsToDb.New(SqlDbType.Time, "time", "time", false, true, null) },
+                { typeof(DateOnly).FullName, CsToDb.New(SqlDbType.Date, "date", "date NOT NULL", false, false, new DateTime(1970,1,1)) },{ typeof(DateOnly?).FullName, CsToDb.New(SqlDbType.Date, "date", "date", false, true, null) },
+#endif
 
                 { typeof(byte[]).FullName, CsToDb.New(SqlDbType.VarBinary, "varbinary", "varbinary(255)", false, null, new byte[0]) },
                 { typeof(string).FullName, CsToDb.New(SqlDbType.NVarChar, "nvarchar", "nvarchar(255)", false, null, "") },
+                { typeof(char).FullName, CsToDb.New(SqlDbType.Char, "char", "char(1)", false, null, '\0') },
 
                 { typeof(Guid).FullName, CsToDb.New(SqlDbType.UniqueIdentifier, "uniqueidentifier", "uniqueidentifier NOT NULL", false, false, Guid.Empty) },{ typeof(Guid?).FullName, CsToDb.New(SqlDbType.UniqueIdentifier, "uniqueidentifier", "uniqueidentifier", false, true, null) },
             };
@@ -131,38 +138,23 @@ ELSE
     , @level2type = 'COLUMN', @level2name = N'{2}'
 ", schema.Replace("'", "''"), table.Replace("'", "''"), column.Replace("'", "''"), comment?.Replace("'", "''") ?? "");
         }
-        protected override string GetComparisonDDLStatements(params TypeAndName[] objects)
+        protected override string GetComparisonDDLStatements(params TypeSchemaAndName[] objects)
         {
-            var conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5));
+            Object<DbConnection> conn = null;
             string database = null;
+
             try
             {
+                conn = _orm.Ado.MasterPool.Get(TimeSpan.FromSeconds(5));
                 database = conn.Value.Database;
-                Func<string, string, object> ExecuteScalar = (db, sql) =>
-                {
-                    if (string.Compare(database, db) != 0) conn.Value.ChangeDatabase(db);
-                    try
-                    {
-                        using (var cmd = conn.Value.CreateCommand())
-                        {
-                            cmd.CommandText = sql;
-                            cmd.CommandType = CommandType.Text;
-                            return cmd.ExecuteScalar();
-                        }
-                    }
-                    finally
-                    {
-                        if (string.Compare(database, db) != 0) conn.Value.ChangeDatabase(database);
-                    }
-                };
-                var sb = new StringBuilder();
 
+                var sb = new StringBuilder();
                 foreach (var obj in objects)
                 {
                     if (sb.Length > 0) sb.Append("\r\n");
-                    var tb = _commonUtils.GetTableByEntity(obj.entityType);
-                    if (tb == null) throw new Exception($"类型 {obj.entityType.FullName} 不可迁移");
-                    if (tb.Columns.Any() == false) throw new Exception($"类型 {obj.entityType.FullName} 不可迁移，可迁移属性0个");
+                    var tb = obj.tableSchema;
+                    if (tb == null) throw new Exception(CoreErrorStrings.S_Type_IsNot_Migrable(obj.tableSchema.Type.FullName));
+                    if (tb.Columns.Any() == false) throw new Exception(CoreErrorStrings.S_Type_IsNot_Migrable_0Attributes(obj.tableSchema.Type.FullName));
                     var tbname = _commonUtils.SplitTableName(tb.DbName);
                     if (tbname?.Length == 1) tbname = new[] { database, "dbo", tbname[0] };
                     if (tbname?.Length == 2) tbname = new[] { database, tbname[0], tbname[1] };
@@ -183,20 +175,20 @@ ELSE
                     }
                     //codefirst 不支持表名、模式名、数据库名中带 .
 
-                    if (string.Compare(tbname[0], database, true) != 0 && ExecuteScalar(database, $" select 1 from sys.databases where name='{tbname[0]}'") == null) //创建数据库
-                        ExecuteScalar(database, $"if not exists(select 1 from sys.databases where name='{tbname[0]}')\r\n\tcreate database [{tbname[0]}];");
-                    if (string.Compare(tbname[1], "dbo", true) != 0 && ExecuteScalar(tbname[0], $" select 1 from sys.schemas where name='{tbname[1]}'") == null) //创建模式
-                        ExecuteScalar(tbname[0], $"create schema [{tbname[1]}] authorization [dbo]");
+                    if (string.Compare(tbname[0], database, true) != 0 && LocalExecuteScalar(database, $" select 1 from sys.databases where name='{tbname[0]}'") == null) //创建数据库
+                        LocalExecuteScalar(database, $"if not exists(select 1 from sys.databases where name='{tbname[0]}')\r\n\tcreate database [{tbname[0]}];");
+                    if (string.Compare(tbname[1], "dbo", true) != 0 && LocalExecuteScalar(tbname[0], $" select 1 from sys.schemas where name='{tbname[1]}'") == null) //创建模式
+                        LocalExecuteScalar(tbname[0], $"create schema [{tbname[1]}] authorization [dbo]");
 
                     var sbalter = new StringBuilder();
                     var istmpatler = false; //创建临时表，导入数据，删除旧表，修改
-                    if (ExecuteScalar(tbname[0], $" select 1 from dbo.sysobjects where id = object_id(N'[{tbname[1]}].[{tbname[2]}]') and OBJECTPROPERTY(id, N'IsUserTable') = 1") == null)
+                    if (LocalExecuteScalar(tbname[0], $" select 1 from dbo.sysobjects where id = object_id(N'[{tbname[1]}].[{tbname[2]}]') and OBJECTPROPERTY(id, N'IsUserTable') = 1") == null)
                     { //表不存在
                         if (tboldname != null)
                         {
-                            if (string.Compare(tboldname[0], tbname[0], true) != 0 && ExecuteScalar(database, $" select 1 from sys.databases where name='{tboldname[0]}'") == null ||
-                                string.Compare(tboldname[1], tbname[1], true) != 0 && ExecuteScalar(tboldname[0], $" select 1 from sys.schemas where name='{tboldname[1]}'") == null ||
-                                ExecuteScalar(tboldname[0], $" select 1 from dbo.sysobjects where id = object_id(N'[{tboldname[1]}].[{tboldname[2]}]') and OBJECTPROPERTY(id, N'IsUserTable') = 1") == null)
+                            if (string.Compare(tboldname[0], tbname[0], true) != 0 && LocalExecuteScalar(database, $" select 1 from sys.databases where name='{tboldname[0]}'") == null ||
+                                string.Compare(tboldname[1], tbname[1], true) != 0 && LocalExecuteScalar(tboldname[0], $" select 1 from sys.schemas where name='{tboldname[1]}'") == null ||
+                                LocalExecuteScalar(tboldname[0], $" select 1 from dbo.sysobjects where id = object_id(N'[{tboldname[1]}].[{tboldname[2]}]') and OBJECTPROPERTY(id, N'IsUserTable') = 1") == null)
                                 //数据库或模式或表不存在
                                 tboldname = null;
                         }
@@ -229,7 +221,7 @@ ELSE
                             {
                                 sb.Append("CREATE ");
                                 if (uk.IsUnique) sb.Append("UNIQUE ");
-                                sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(createTableName).Append("(");
+                                sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ReplaceIndexName(uk.Name, tbname[2]))).Append(" ON ").Append(createTableName).Append("(");
                                 foreach (var tbcol in uk.Columns)
                                 {
                                     sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -265,17 +257,17 @@ ELSE
                     var sql = string.Format(@"
 use [{0}];
 select
-a.name 'Column'
+a.name 'column'
 ,b.name + case 
- when b.name in ('Char', 'VarChar', 'NChar', 'NVarChar', 'Binary', 'VarBinary') then '(' + 
+ when b.name in ('char', 'varchar', 'nchar', 'nvarchar', 'binary', 'varbinary') then '(' + 
   case when a.max_length = -1 then 'MAX' 
-  when b.name in ('NChar', 'NVarchar') then cast(a.max_length / 2 as varchar)
+  when b.name in ('nchar', 'nvarchar') then cast(a.max_length / 2 as varchar)
   else cast(a.max_length as varchar) end + ')'
- when b.name in ('Numeric', 'Decimal') then '(' + cast(a.precision as varchar) + ',' + cast(a.scale as varchar) + ')'
- else '' end as 'SqlType'
-,case when a.is_nullable = 1 then '1' else '0' end 'IsNullable'
-,case when a.is_identity = 1 then '1' else '0' end 'IsIdentity'
-,(select value from sys.extended_properties where major_id = a.object_id AND minor_id = a.column_id AND name = 'MS_Description') 'Comment'
+ when b.name in ('numeric', 'decimal') then '(' + cast(a.precision as varchar) + ',' + cast(a.scale as varchar) + ')'
+ else '' end as 'sqltype'
+,case when a.is_nullable = 1 then '1' else '0' end 'isnullable'
+,case when a.is_identity = 1 then '1' else '0' end 'isidentity'
+,(select value from sys.extended_properties where major_id = a.object_id AND minor_id = a.column_id AND name = 'MS_Description') 'comment'
 from sys.columns a
 inner join sys.types b on b.user_type_id = a.user_type_id
 left join sys.tables d on d.object_id = a.object_id
@@ -341,13 +333,14 @@ use [" + database + "];", tboldname ?? tbname);
                         foreach (var uk in tb.Indexes)
                         {
                             if (string.IsNullOrEmpty(uk.Name) || uk.Columns.Any() == false) continue;
-                            var dsukfind1 = dsuk.Where(a => string.Compare(a[1], uk.Name, true) == 0).ToArray();
+                            var ukname = ReplaceIndexName(uk.Name, tbname[2]);
+                            var dsukfind1 = dsuk.Where(a => string.Compare(a[1], ukname, true) == 0).ToArray();
                             if (dsukfind1.Any() == false || dsukfind1.Length != uk.Columns.Length || dsukfind1.Where(a => (a[3] == "1") == uk.IsUnique && uk.Columns.Where(b => string.Compare(b.Column.Attribute.Name, a[0], true) == 0 && (a[2] == "1") == b.IsDesc).Any()).Count() != uk.Columns.Length)
                             {
-                                if (dsukfind1.Any()) sbalter.Append("DROP INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(_commonUtils.QuoteSqlName(tbname[1], tbname[2])).Append(";\r\n");
+                                if (dsukfind1.Any()) sbalter.Append("DROP INDEX ").Append(_commonUtils.QuoteSqlName(ukname)).Append(" ON ").Append(_commonUtils.QuoteSqlName(tbname[1], tbname[2])).Append(";\r\n");
                                 sbalter.Append("CREATE ");
                                 if (uk.IsUnique) sbalter.Append("UNIQUE ");
-                                sbalter.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(_commonUtils.QuoteSqlName(tbname[1], tbname[2])).Append("(");
+                                sbalter.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ukname)).Append(" ON ").Append(_commonUtils.QuoteSqlName(tbname[1], tbname[2])).Append("(");
                                 foreach (var tbcol in uk.Columns)
                                 {
                                     sbalter.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -372,7 +365,8 @@ use [" + database + "];", tboldname ?? tbname);
                     }
                     //创建临时表，数据导进临时表，然后删除原表，将临时表改名为原表名
                     bool idents = false;
-                    var tablename = tboldname == null ? _commonUtils.QuoteSqlName(tbname[0], tbname[1], tbname[2]) : _commonUtils.QuoteSqlName(tboldname[0], tboldname[1], tboldname[2]);
+                    var newtablename = _commonUtils.QuoteSqlName(tbname[0], tbname[1], tbname[2]);
+                    var tablename = tboldname == null ? newtablename : _commonUtils.QuoteSqlName(tboldname[0], tboldname[1], tboldname[2]);
                     var tmptablename = _commonUtils.QuoteSqlName(tbname[0], tbname[1], $"FreeSqlTmp_{tbname[2]}");
                     sb.Append("BEGIN TRANSACTION\r\n")
                         .Append("SET QUOTED_IDENTIFIER ON\r\n")
@@ -449,7 +443,7 @@ use [" + database + "];", tboldname ?? tbname);
                     {
                         sb.Append("CREATE ");
                         if (uk.IsUnique) sb.Append("UNIQUE ");
-                        sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(uk.Name)).Append(" ON ").Append(tablename).Append("(");
+                        sb.Append("INDEX ").Append(_commonUtils.QuoteSqlName(ReplaceIndexName(uk.Name, tbname[2]))).Append(" ON ").Append(newtablename).Append("(");
                         foreach (var tbcol in uk.Columns)
                         {
                             sb.Append(_commonUtils.QuoteSqlName(tbcol.Column.Attribute.Name));
@@ -473,6 +467,39 @@ use [" + database + "];", tboldname ?? tbname);
                 catch
                 {
                     _orm.Ado.MasterPool.Return(conn, true);
+                }
+            }
+
+            object LocalExecuteScalar(string db, string sql)
+            {
+                if (string.Compare(database, db) != 0) conn.Value.ChangeDatabase(db);
+                try
+                {
+                    using (var cmd = conn.Value.CreateCommand())
+                    {
+                        cmd.CommandText = sql;
+                        cmd.CommandType = CommandType.Text;
+                        var before = new Aop.CommandBeforeEventArgs(cmd);
+                        this._orm?.Aop.CommandBeforeHandler?.Invoke(this._orm, before);
+                        Exception afterException = null;
+                        try
+                        {
+                            return cmd.ExecuteScalar();
+                        }
+                        catch (Exception ex)
+                        {
+                            afterException = ex;
+                            throw;
+                        }
+                        finally
+                        {
+                            this._orm?.Aop.CommandAfterHandler?.Invoke(this._orm, new Aop.CommandAfterEventArgs(before, afterException, null));
+                        }
+                    }
+                }
+                finally
+                {
+                    if (string.Compare(database, db) != 0) conn.Value.ChangeDatabase(database);
                 }
             }
         }

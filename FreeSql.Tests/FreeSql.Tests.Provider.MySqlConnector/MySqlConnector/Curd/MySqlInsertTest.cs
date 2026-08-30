@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -28,6 +28,31 @@ namespace FreeSql.Tests.MySqlConnector
             public DateTime time { get; set; } = new DateTime();
         }
         enum TestEnumInserTbType { str1, biggit, sum211 }
+
+        [Fact]
+        public void InsertDictionary()
+        {
+            var fsql = g.mysql;
+            Dictionary<string, object> dic = new Dictionary<string, object>();
+            dic.Add("id", 1);
+            dic.Add("name", "xxxx");
+            var diclist = new List<Dictionary<string, object>>();
+            diclist.Add(dic);
+            diclist.Add(new Dictionary<string, object>
+            {
+                ["id"] = 2,
+                ["name"] = "yyyy"
+            });
+
+            var sql1 = fsql.InsertDict(dic).AsTable("table1").ToSql();
+            Assert.Equal(@"INSERT INTO `table1`(`id`, `name`) VALUES(@id_0, @name_0)", sql1);
+            var sql2 = fsql.InsertDict(diclist).AsTable("table1").ToSql();
+            Assert.Equal(@"INSERT INTO `table1`(`id`, `name`) VALUES(@id_0, @name_0), (@id_1, @name_1)", sql2);
+            var sql3 = fsql.InsertDict(dic).AsTable("table1").NoneParameter().ToSql();
+            Assert.Equal(@"INSERT INTO `table1`(`id`, `name`) VALUES(1, 'xxxx')", sql3);
+            var sql4 = fsql.InsertDict(diclist).AsTable("table1").NoneParameter().ToSql();
+            Assert.Equal(@"INSERT INTO `table1`(`id`, `name`) VALUES(1, 'xxxx'), (2, 'yyyy')", sql4);
+        }
 
         [Fact]
         public void AppendData()
@@ -105,6 +130,11 @@ namespace FreeSql.Tests.MySqlConnector
 
             Assert.Equal(1, g.mysql.Insert<TestEnumInsertTb>().AppendData(new TestEnumInsertTb { type = TestEnumInserTbType.sum211 }).ExecuteAffrows());
             Assert.Equal(1, g.mysql.Insert<TestEnumInsertTb>().AppendData(new TestEnumInsertTb { type = TestEnumInserTbType.sum211 }).NoneParameter().ExecuteAffrows());
+
+            Assert.Equal(10, g.mysql.Select<Topic>().Limit(10).InsertInto(null, a => new Topic
+            {
+                Title = a.Title
+            }));
         }
         [Fact]
         public void ExecuteIdentity()
@@ -149,6 +179,32 @@ namespace FreeSql.Tests.MySqlConnector
             Assert.Equal(TestEnumInserTbType.sum211, g.mysql.Select<TestEnumInsertTb>().Where(a => a.id == id).First()?.type);
             id = g.mysql.Insert<TestEnumInsertTb>().MySqlIgnoreInto().AppendData(new TestEnumInsertTb { type = TestEnumInserTbType.sum211 }).NoneParameter().ExecuteIdentity();
             Assert.Equal(TestEnumInserTbType.sum211, g.mysql.Select<TestEnumInsertTb>().Where(a => a.id == id).First()?.type);
+        }
+
+
+        [Table(Name = "tb_topic_insertbulk")]
+        class TopicBulk
+        {
+            [Column(IsIdentity = true, IsPrimary = true)]
+            public int Id { get; set; }
+            public int Clicks { get; set; }
+            public string Title { get; set; }
+            public DateTime CreateTime { get; set; }
+        }
+        [Fact]
+        public void ExecuteMySqlBulkCopy()
+        {
+            g.mysql.Delete<TopicBulk>().Where(a => true).ExecuteAffrows();
+            var items = new List<TopicBulk>();
+            for (var a = 0; a < 10; a++) items.Add(new TopicBulk { Id = a + 1, Title = $"newtitle{a}", Clicks = a * 100, CreateTime = DateTime.Now });
+
+            g.mysql.Insert(items).ExecuteMySqlBulkCopy();
+
+            items = g.mysql.Select<TopicBulk>().OrderByDescending(a => a.Id).Limit(1000).ToList();
+            g.mysql.Update<TopicBulk>().SetSource(items).ExecuteMySqlBulkCopy();
+            g.mysql.Update<TopicBulk>().SetSource(items, a => new { a.Id, a.Clicks }).ExecuteMySqlBulkCopy();
+            g.mysql.Update<TopicBulk>().SetSource(items).UpdateColumns(a => new { a.Title }).ExecuteMySqlBulkCopy();
+            g.mysql.Update<TopicBulk>().SetSource(items, a => new { a.Id, a.Clicks }).UpdateColumns(a => new { a.Title }).ExecuteMySqlBulkCopy();
         }
 
         [Fact]

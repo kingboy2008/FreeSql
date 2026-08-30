@@ -1,4 +1,5 @@
-using FreeSql.DataAnnotations;
+﻿using FreeSql.DataAnnotations;
+using Microsoft.Data.Sqlite;
 using System;
 using Xunit;
 
@@ -10,12 +11,26 @@ namespace FreeSql.Tests.Sqlite
         public void Pool()
         {
             var t1 = g.sqlite.Ado.MasterPool.StatisticsFullily;
+
+            var connectionString = "data source=:memory:";
+            using (var t2 = new FreeSqlBuilder()
+                .UseConnectionFactory(FreeSql.DataType.Sqlite, () => new SqliteConnection(connectionString))
+                .Build())
+            {
+                Assert.Equal(connectionString, t2.Ado.ConnectionString);
+            }
         }
 
         [Fact]
         public void SlavePools()
         {
             var t2 = g.sqlite.Ado.SlavePools.Count;
+        }
+
+        [Fact]
+        public void ExecuteTest()
+        {
+            Assert.True(g.sqlite.Ado.ExecuteConnectTest());
         }
         [Fact]
         public void ExecuteReader()
@@ -53,6 +68,8 @@ namespace FreeSql.Tests.Sqlite
             var t4 = g.sqlite.Ado.Query<(int, string, string)>("select * from \"song\"");
 
             var t5 = g.sqlite.Ado.Query<dynamic>("select * from \"song\"");
+
+            var t6 = g.sqlite.Ado.Query<xxx>("select * from song where id in @ids", new { ids = new[] { 1, 2, 3 } });
         }
 
         [Fact]

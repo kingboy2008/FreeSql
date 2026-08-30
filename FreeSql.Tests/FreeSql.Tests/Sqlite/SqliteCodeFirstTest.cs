@@ -1,4 +1,4 @@
-using FreeSql.DataAnnotations;
+ï»¿using FreeSql.DataAnnotations;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -12,9 +12,54 @@ namespace FreeSql.Tests.Sqlite
     public class SqliteCodeFirstTest
     {
         [Fact]
+        public void Test_0String()
+        {
+            var fsql = g.sqlite;
+            fsql.Delete<test_0string01>().Where("1=1").ExecuteAffrows();
+
+            Assert.Equal(1, fsql.Insert(new test_0string01 { name = @"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000" }).ExecuteAffrows());
+            Assert.Equal(1, fsql.Insert(new test_0string01 { name = @"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000" }).NoneParameter().ExecuteAffrows());
+
+            var list = fsql.Select<test_0string01>().ToList();
+            Assert.Equal(2, list.Count);
+            Assert.Equal(@"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000", list[0].name);
+            Assert.Equal(@"1.0000\0.0000\0.0000\0.0000\1.0000\0.0000", list[1].name);
+        }
+        class test_0string01
+        {
+            public Guid id { get; set; }
+            public string name { get; set; }
+        }
+
+        [Fact]
+        public void InsertUpdateParameter()
+        {
+            var fsql = g.sqlite;
+            fsql.CodeFirst.SyncStructure<ts_iupstr_bak>();
+            var item = new ts_iupstr { id = Guid.NewGuid(), title = string.Join(",", Enumerable.Range(0, 2000).Select(a => "æˆ‘æ˜¯ä¸­å›½äºº")) };
+            Assert.Equal(1, fsql.Insert(item).ExecuteAffrows());
+            var find = fsql.Select<ts_iupstr>().Where(a => a.id == item.id).First();
+            Assert.NotNull(find);
+            Assert.Equal(find.id, item.id);
+            Assert.Equal(find.title, item.title);
+        }
+        [Table(Name = "ts_iupstr_bak", DisableSyncStructure = true)]
+        class ts_iupstr
+        {
+            public Guid id { get; set; }
+            public string title { get; set; }
+        }
+        class ts_iupstr_bak
+        {
+            public Guid id { get; set; }
+            [Column(StringLength = -1)]
+            public string title { get; set; }
+        }
+
+        [Fact]
         public void Blob()
         {
-            var str1 = string.Join(",", Enumerable.Range(0, 10000).Select(a => "ÎÒÊÇÖĞ¹úÈË"));
+            var str1 = string.Join(",", Enumerable.Range(0, 10000).Select(a => "æˆ‘æ˜¯ä¸­å›½äºº"));
             var data1 = Encoding.UTF8.GetBytes(str1);
 
             var item1 = new TS_BLB01 { Data = data1 };
@@ -30,6 +75,13 @@ namespace FreeSql.Tests.Sqlite
             item1 = new TS_BLB01 { Data = data1 };
             Assert.Equal(1, g.sqlite.Insert<TS_BLB01>().NoneParameter().AppendData(item1).ExecuteAffrows());
 
+            item2 = g.sqlite.Select<TS_BLB01>().Where(a => a.Id == item1.Id).First();
+            Assert.Equal(item1.Data.Length, item2.Data.Length);
+
+            str2 = Encoding.UTF8.GetString(item2.Data);
+            Assert.Equal(str1, str2);
+
+            Assert.Equal(1, g.sqlite.InsertOrUpdate<TS_BLB01>().SetSource(new TS_BLB01 { Data = data1 }).ExecuteAffrows());
             item2 = g.sqlite.Select<TS_BLB01>().Where(a => a.Id == item1.Id).First();
             Assert.Equal(item1.Data.Length, item2.Data.Length);
 
@@ -60,7 +112,7 @@ namespace FreeSql.Tests.Sqlite
         }
 
         [Fact]
-        public void ±íÃûÖĞÓĞµã()
+        public void è¡¨åä¸­æœ‰ç‚¹()
         {
             var item = new tbdot01 { name = "insert" };
             g.sqlite.Insert(item).ExecuteAffrows();
@@ -88,57 +140,57 @@ namespace FreeSql.Tests.Sqlite
         }
 
         [Fact]
-        public void ÖĞÎÄ±í_×Ö¶Î()
+        public void ä¸­æ–‡è¡¨_å­—æ®µ()
         {
-            var sql = g.sqlite.CodeFirst.GetComparisonDDLStatements<²âÊÔÖĞÎÄ±í>();
-            g.sqlite.CodeFirst.SyncStructure<²âÊÔÖĞÎÄ±í>();
+            var sql = g.sqlite.CodeFirst.GetComparisonDDLStatements<æµ‹è¯•ä¸­æ–‡è¡¨>();
+            g.sqlite.CodeFirst.SyncStructure<æµ‹è¯•ä¸­æ–‡è¡¨>();
 
-            var item = new ²âÊÔÖĞÎÄ±í
+            var item = new æµ‹è¯•ä¸­æ–‡è¡¨
             {
-                ±êÌâ = "²âÊÔ±êÌâ",
-                ´´½¨Ê±¼ä = DateTime.Now
+                æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜",
+                åˆ›å»ºæ—¶é—´ = DateTime.Now
             };
-            Assert.Equal(1, g.sqlite.Insert<²âÊÔÖĞÎÄ±í>().AppendData(item).ExecuteAffrows());
-            Assert.NotEqual(Guid.Empty, item.±àºÅ);
-            var item2 = g.sqlite.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            Assert.Equal(1, g.sqlite.Insert<æµ‹è¯•ä¸­æ–‡è¡¨>().AppendData(item).ExecuteAffrows());
+            Assert.NotEqual(Guid.Empty, item.ç¼–å·);
+            var item2 = g.sqlite.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ";
-            Assert.Equal(1, g.sqlite.Update<²âÊÔÖĞÎÄ±í>().SetSource(item).ExecuteAffrows());
-            item2 = g.sqlite.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°";
+            Assert.Equal(1, g.sqlite.Update<æµ‹è¯•ä¸­æ–‡è¡¨>().SetSource(item).ExecuteAffrows());
+            item2 = g.sqlite.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ_repo";
-            var repo = g.sqlite.GetRepository<²âÊÔÖĞÎÄ±í>();
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°_repo";
+            var repo = g.sqlite.GetRepository<æµ‹è¯•ä¸­æ–‡è¡¨>();
             Assert.Equal(1, repo.Update(item));
-            item2 = g.sqlite.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item2 = g.sqlite.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
 
-            item.±êÌâ = "²âÊÔ±êÌâ¸üĞÂ_repo22";
+            item.æ ‡é¢˜ = "æµ‹è¯•æ ‡é¢˜æ›´æ–°_repo22";
             Assert.Equal(1, repo.Update(item));
-            item2 = g.sqlite.Select<²âÊÔÖĞÎÄ±í>().Where(a => a.±àºÅ == item.±àºÅ).First();
+            item2 = g.sqlite.Select<æµ‹è¯•ä¸­æ–‡è¡¨>().Where(a => a.ç¼–å· == item.ç¼–å·).First();
             Assert.NotNull(item2);
-            Assert.Equal(item.±àºÅ, item2.±àºÅ);
-            Assert.Equal(item.±êÌâ, item2.±êÌâ);
+            Assert.Equal(item.ç¼–å·, item2.ç¼–å·);
+            Assert.Equal(item.æ ‡é¢˜, item2.æ ‡é¢˜);
         }
-        class ²âÊÔÖĞÎÄ±í
+        class æµ‹è¯•ä¸­æ–‡è¡¨
         {
             [Column(IsPrimary = true)]
-            public Guid ±àºÅ { get; set; }
+            public Guid ç¼–å· { get; set; }
 
-            public string ±êÌâ { get; set; }
+            public string æ ‡é¢˜ { get; set; }
 
             [Column(ServerTime = DateTimeKind.Local, CanUpdate = false)]
-            public DateTime ´´½¨Ê±¼ä { get; set; }
+            public DateTime åˆ›å»ºæ—¶é—´ { get; set; }
 
             [Column(ServerTime = DateTimeKind.Local)]
-            public DateTime ¸üĞÂÊ±¼ä { get; set; }
+            public DateTime æ›´æ–°æ—¶é—´ { get; set; }
         }
 
         [Fact]
@@ -146,11 +198,12 @@ namespace FreeSql.Tests.Sqlite
         {
             var sql = g.sqlite.CodeFirst.GetComparisonDDLStatements<AddUniquesInfo>();
             g.sqlite.CodeFirst.SyncStructure<AddUniquesInfo>();
+            g.sqlite.CodeFirst.SyncStructure(typeof(AddUniquesInfo), "AddUniquesInfo1");
         }
         [Table(Name = "AddUniquesInfo2", OldName = "AddUniquesInfo")]
-        [Index("uk_phone", "phone", true)]
-        [Index("uk_group_index", "group,index", true)]
-        [Index("uk_group_index22", "group desc, index22", true)]
+        [Index("{tablename}_uk_phone", "phone", true)]
+        [Index("{tablename}_uk_group_index", "group,index", true)]
+        [Index("{tablename}_uk_group_index22", "group desc, index22", true)]
         class AddUniquesInfo
         {
             public Guid id { get; set; }
@@ -184,29 +237,29 @@ namespace FreeSql.Tests.Sqlite
         public void AddField()
         {
 
-            //ĞãÒ»²¨ FreeSql.Repository À©Õ¹°ü£¬dotnet add package FreeSql.Repository
-            var topicRepository = g.sqlite.GetGuidRepository<Topic>();
-            var commentRepository = g.sqlite.GetGuidRepository<Comment>();
+            //ç§€ä¸€æ³¢ FreeSql.Repository æ‰©å±•åŒ…ï¼Œdotnet add package FreeSql.Repository
+            var topicRepository = g.sqlite.GetRepository<Topic, Guid>();
+            var commentRepository = g.sqlite.GetRepository<Comment, Guid>();
 
-            //Ìí¼Ó²âÊÔÎÄÕÂ
+            //æ·»åŠ æµ‹è¯•æ–‡ç« 
             var topic = topicRepository.Insert(new Topic
             {
-                Title = "ÎÄÕÂ±êÌâ1",
-                Content = "ÎÄÕÂÄÚÈİ1",
+                Title = "æ–‡ç« æ ‡é¢˜1",
+                Content = "æ–‡ç« å†…å®¹1",
                 CreateTime = DateTime.Now
             });
 
-            //Ìí¼Ó10Ìõ²âÊÔÆÀÂÛ
+            //æ·»åŠ 10æ¡æµ‹è¯•è¯„è®º
             var comments = Enumerable.Range(0, 10).Select(a => new Comment
             {
                 TopicId = topic.Id,
-                Nickname = $"êÇ³Æ{a}",
-                Content = $"ÆÀÂÛÄÚÈİ{a}",
+                Nickname = $"æ˜µç§°{a}",
+                Content = $"è¯„è®ºå†…å®¹{a}",
                 CreateTime = DateTime.Now
             }).ToArray();
             var affrows = commentRepository.Insert(comments);
 
-            var find = commentRepository.Select.Where(a => a.Topic.Title == "ÎÄÕÂ±êÌâ1").ToList();
+            var find = commentRepository.Select.Where(a => a.Topic.Title == "æ–‡ç« æ ‡é¢˜1").ToList();
 
 
 
@@ -238,53 +291,7 @@ namespace FreeSql.Tests.Sqlite
         {
 
             var sql = g.sqlite.CodeFirst.GetComparisonDDLStatements<TableAllType>();
-            if (string.IsNullOrEmpty(sql) == false)
-            {
-                Assert.Equal(@"CREATE TABLE IF NOT EXISTS ""main"".""tb_alltype"" ( 
-  ""Id"" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, 
-  ""Bool"" BOOLEAN NOT NULL, 
-  ""SByte"" SMALLINT NOT NULL, 
-  ""Short"" SMALLINT NOT NULL, 
-  ""Int"" INTEGER NOT NULL, 
-  ""Long"" INTEGER NOT NULL, 
-  ""Byte"" INT2 NOT NULL, 
-  ""UShort"" UNSIGNED NOT NULL, 
-  ""UInt"" DECIMAL(10,0) NOT NULL, 
-  ""ULong"" DECIMAL(21,0) NOT NULL, 
-  ""Double"" DOUBLE NOT NULL, 
-  ""Float"" FLOAT NOT NULL, 
-  ""Decimal"" DECIMAL(10,2) NOT NULL, 
-  ""TimeSpan"" BIGINT NOT NULL, 
-  ""DateTime"" DATETIME NOT NULL, 
-  ""DateTimeOffSet"" DATETIME NOT NULL, 
-  ""Bytes"" BLOB, 
-  ""String"" NVARCHAR(255), 
-  ""Guid"" CHARACTER(36) NOT NULL, 
-  ""BoolNullable"" BOOLEAN, 
-  ""SByteNullable"" SMALLINT, 
-  ""ShortNullable"" SMALLINT, 
-  ""IntNullable"" INTEGER, 
-  ""testFielLongNullable"" INTEGER, 
-  ""ByteNullable"" INT2, 
-  ""UShortNullable"" UNSIGNED, 
-  ""UIntNullable"" DECIMAL(10,0), 
-  ""ULongNullable"" DECIMAL(21,0), 
-  ""DoubleNullable"" DOUBLE, 
-  ""FloatNullable"" FLOAT, 
-  ""DecimalNullable"" DECIMAL(10,2), 
-  ""TimeSpanNullable"" BIGINT, 
-  ""DateTimeNullable"" DATETIME, 
-  ""DateTimeOffSetNullable"" DATETIME, 
-  ""GuidNullable"" CHARACTER(36), 
-  ""Enum1"" MEDIUMINT NOT NULL, 
-  ""Enum1Nullable"" MEDIUMINT, 
-  ""Enum2"" BIGINT NOT NULL, 
-  ""Enum2Nullable"" BIGINT
-) 
-;
-", sql);
-            }
-
+            Assert.True(string.IsNullOrEmpty(sql)); //æµ‹è¯•è¿è¡Œä¸¤æ¬¡å
             //sql = g.Sqlite.CodeFirst.GetComparisonDDLStatements<Tb_alltype>();
         }
 
@@ -305,7 +312,7 @@ namespace FreeSql.Tests.Sqlite
                 BoolNullable = true,
                 Byte = 255,
                 ByteNullable = 127,
-                Bytes = Encoding.UTF8.GetBytes("ÎÒÊÇÖĞ¹úÈË"),
+                Bytes = Encoding.UTF8.GetBytes("æˆ‘æ˜¯ä¸­å›½äºº"),
                 DateTime = DateTime.Now,
                 DateTimeNullable = DateTime.Now.AddHours(-1),
                 Decimal = 99.99M,
@@ -326,8 +333,9 @@ namespace FreeSql.Tests.Sqlite
                 SByteNullable = 99,
                 Short = short.MaxValue,
                 ShortNullable = short.MinValue,
-                String = "ÎÒÊÇÖĞ¹úÈËstring'\\?!@#$%^&*()_+{}}{~?><<>",
-                TimeSpan = TimeSpan.FromSeconds(999),
+                String = "æˆ‘æ˜¯ä¸­å›½äººstring'\\?!@#$%^&*()_+{}}{~?><<>",
+                Char = 'X',
+                TimeSpan = TimeSpan.FromMilliseconds(999500),
                 TimeSpanNullable = TimeSpan.FromSeconds(60),
                 UInt = uint.MaxValue,
                 UIntNullable = uint.MinValue,
@@ -339,13 +347,28 @@ namespace FreeSql.Tests.Sqlite
             };
             item2.Id = (int)insert.AppendData(item2).ExecuteIdentity();
             var newitem2 = select.Where(a => a.Id == item2.Id).ToOne();
+            var newitem2TimeSpan = select.Where(a => a.Id == item2.Id).First(a => a.TimeSpan);
             Assert.Equal(item2.String, newitem2.String);
+            Assert.Equal(item2.Char, newitem2.Char);
 
             item2.Id = (int)insert.NoneParameter().AppendData(item2).ExecuteIdentity();
             newitem2 = select.Where(a => a.Id == item2.Id).ToOne();
             Assert.Equal(item2.String, newitem2.String);
+            Assert.Equal(item2.Char, newitem2.Char);
 
             var items = select.ToList();
+            var itemstb = select.ToDataTable();
+        }
+
+        [Fact]
+        public void UpdateSetFlag()
+        {
+            var sql1 = g.sqlite.Update<TableAllType>()
+                .Set(a => a.Enum2 | TableAllTypeEnumType2.f2)
+                .Where(a => a.Id == 10)
+                .ToSql();
+            Assert.Equal(@"UPDATE ""tb_alltype"" SET ""Enum2"" = (""Enum2"" | 1), ""DateTime"" = datetime(current_timestamp,'localtime'), ""DateTimeOffSet"" = datetime(current_timestamp,'localtime'), ""DateTimeNullable"" = datetime(current_timestamp,'localtime'), ""DateTimeOffSetNullable"" = datetime(current_timestamp,'localtime') 
+WHERE (""Id"" = 10)", sql1);
         }
 
         [Table(Name = "tb_alltype")]
@@ -377,6 +400,7 @@ namespace FreeSql.Tests.Sqlite
 
             public byte[] Bytes { get; set; }
             public string String { get; set; }
+            public char Char { get; set; }
             public Guid Guid { get; set; }
 
             public bool? BoolNullable { get; set; }
